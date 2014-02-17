@@ -1555,7 +1555,6 @@ var FormListView = BaseView.extend({
 
     App.collections.forms.bind('reset', function (collection, options) {
        if (options == null || !options.noFetch) {
-         $fh.logger.debug('reset forms collection');
          App.collections.forms.each(function (form) {
            form.fetch();
          });
@@ -1671,7 +1670,7 @@ var FormListItemView = BaseView.extend({
     fetch: function () {
     }
   });
-FieldView = Backbone.View.extend({
+var FieldView = Backbone.View.extend({
 
   className: 'fh_appform_field_area',
   errMessageContainer: ".fh_appform_errorMsg",
@@ -1829,7 +1828,7 @@ FieldView = Backbone.View.extend({
     if (submission) {
       this.submission = submission;
       this.submission.getInputValueByFieldId(this.model.get('_id'), function(err, res) {
-        console.log(err, res);
+        //console.log(err, res);
         self.value(res);
       });
     }
@@ -1854,7 +1853,6 @@ FieldView = Backbone.View.extend({
 
   dumpContent: function() {
     console.log("Value changed :: " + JSON.stringify(this.value()));
-
   },
 
   getTopView: function() {
@@ -1870,7 +1868,7 @@ FieldView = Backbone.View.extend({
   },
 
   validate: function(e) {
-    if (App.config.validationOn) {
+    if (!$fh.forms.config.get("studioMode")) {
       var self = this;
       var target = $(e.currentTarget);
       var index = target.data().index;
@@ -2124,10 +2122,7 @@ FieldCameraView = FieldView.extend({
   addFromCamera: function (e, index) {
     e.preventDefault();
     var self = this;
-    var params = {
-        width: App.config.getValueOrDefault('cam_targetWidth'),
-        height: App.config.getValueOrDefault('cam_targetHeight')
-      };
+    var params = {};
     if (this.model.utils.isPhoneGapCamAvailable()) {
       this.model.utils.takePhoto(params, function (err, base64Img) {
         if (err) {
@@ -2191,10 +2186,7 @@ FieldCameraView = FieldView.extend({
   },
   addFromLibrary: function (e, index) {
     var self = this;
-    var params = {
-        width: App.config.getValueOrDefault('cam_targetWidth'),
-        height: App.config.getValueOrDefault('cam_targetHeight')
-      };
+    var params = {};
     if (self.model.utils.isPhoneGapCamAvailable()) {
       e.preventDefault();
       params.sourceType = Camera.PictureSourceType.PHOTOLIBRARY;
@@ -2254,7 +2246,6 @@ FieldCameraGroupView = FieldCameraView.extend({
     // pass visible event down to all fields
     var parent = this;
     this.on('visible', function () {
-      $fh.logger.debug('group visible');
       var subviews = this.subviews;
       _(subviews).forEach(function (fieldView) {
         // this group is a camera view and contains itself
@@ -2941,7 +2932,7 @@ FieldSignatureView = FieldView.extend({
     });
   },
   validate: function(e) {
-    if (App.config.validationOn) {
+    if (!$fh.forms.config.get("studioMode")) {
       this.trigger("checkrules");
     }
   },
@@ -3292,7 +3283,7 @@ FieldDateTimeView = FieldView.extend({
 FieldUrlView = FieldView.extend({
   type: "url"
 });
-PageView=BaseView.extend({
+var PageView=BaseView.extend({
 
   viewMap: {
     "text": FieldTextView,
@@ -3309,8 +3300,8 @@ PageView=BaseView.extend({
     "signature": FieldSignatureView,
     "locationMap": FieldMapView,
     "dateTime":FieldDateTimeView,
-    "sectionBreak":FieldSectionBreak,
-    "url":FieldUrlView
+    "sectionBreak":FieldSectionBreak
+    // "url":FieldUrlView
   },
   templates : {
     pageTitle : '<div class="fh_appform_page_title"><%= pageTitle %></div>',
@@ -3616,6 +3607,8 @@ var FormView = BaseView.extend({
           for (targetId in fields) {
             self.performRuleAction("field", targetId, fields[targetId]["action"]);
           }
+          //TODO trigger an event with status of pages
+          //TODO subscribe to status of pages (form and stepsView)
         }
       });
     });
@@ -3624,6 +3617,7 @@ var FormView = BaseView.extend({
     var target = null;
     if (type == "page") {
       target = this.getPageViewById(targetId);
+      target.skipPage();
     } else if (type == "field") {
       target = this.getFieldViewById(targetId);
     }
@@ -3722,7 +3716,6 @@ var FormView = BaseView.extend({
 
   },
   render: function() {
-
     // this.initWithForm(this.form, this.params);
     this.el.find("#fh_appform_container.fh_appform_form").append(this.templates.buttons);
     this.rebindButtons();
@@ -3846,8 +3839,6 @@ var FormView = BaseView.extend({
         value: v
       });
     }
-
-    console.log('INPUT VALUE SET', fieldId, value);
   }
 });
 var FromJsonView = BaseView.extend({
@@ -3935,9 +3926,170 @@ StepsView = Backbone.View.extend({
 
   activePageChange: function(model, pageIndex) {
     this.$el.find('td').removeClass('active');
+    this.$el.find('.fh_appform_page_title').hide();
     this.$el.find('td:eq(' + pageIndex + ')').addClass('active');
+    this.$el.find('td:eq(' + pageIndex + ') .fh_appform_page_title').show();
   }
 
+});
+var ConfigView = Backbone.View.extend({
+  "templates": [
+    '<div class="config_camera">' +
+    '<fieldset>' +
+    '<legend>Camera</legend>' +
+    '<div class="form-group">' +
+    '<label>Quality</label>' +
+    '<input data-key="quality" value="<%= quality%>"/>' +
+    '</div>' +
+    '<div class="form-group">' +
+    '<label>Target Width</label>' +
+    '<input data-key="targetWidth" value="<%= targetWidth%>"/>' +
+    '</div><div class="form-group">' +
+    '<label>Target Height</label>' +
+    '<input data-key="targetHeight" value="<%= targetHeight%>"/>' +
+    '</div>' +
+    '</fieldset>' +
+    '</div>',
+    '<div class="config_submission">' +
+    '<fieldset>' +
+    '<legend>Submission</legend>' +
+    '<div class="form-group">' +
+    '<label>Max Retries</label>' +
+    '<input data-key="max_retries" value="<%= max_retries%>"/>' +
+    '</div>' +
+    '<div class="form-group">' +
+    '<label>Timeout</label>' +
+    '<input data-key="timeout" value="<%= timeout%>"/>' +
+    '</div><div class="form-group">' +
+    '<label>Min Sent Items to Save</label>' +
+    '<input data-key="sent_save_min" value="<%= sent_save_min%>"/>' +
+    '</div><div class="form-group">' +
+    '<label>Max Sent Items to Save</label>' +
+    '<input data-key="sent_save_max" value="<%= sent_save_max%>"/>' +
+    '</div>' +
+    '</fieldset>' +
+    '</div>',
+    '<style type="text/css">'+
+  '#_logsViewPanel{'+
+    'position:fixed;'+
+    'left:10px;'+
+    'top:10px;'+
+    'right:10px;'+
+    'bottom:10px;'+
+    'padding:8px;'+
+    'background: white;'+
+    '-webkit-border-radius: 8px;'+
+    'border-radius: 8px;'+
+    'overflow: auto;'+
+  '}'+
+  '#_closeViewBtn{'+
+    'border: 1px solid;'+
+    'padding:3px;'+
+  '}'+
+'</style>'+
+'<div class="config_debugging">'+
+  '<fieldset>'+
+    '<legend>Debugging</legend>'+
+      '<div class="form-group">'+
+        '<label>Log Enabled</label>'+
+        '<input type="checkbox" data-key="logger"  <%= logger?"checked":"" %> value="true"/>'+
+      '</div>'+
+      '<div class="form-group">'+
+        '<label>Log Level</label>'+
+        '<select data-key="log_level">'+
+          '<%'+
+              'for (var i=0;i<log_levels.length;i++){'+
+                'var val=log_levels[i];'+
+                'var selected=(i==log_level)?"selected":"";'+
+                '%>'+
+                  '<option value="<%= i %>" <%= selected%>><%= val%></option>'+
+                '<%'+
+              '}'+
+            '%>'+
+        '</select>'+
+      '</div><div class="form-group">'+
+        '<label>Log Line Number</label>'+
+        '<input data-key="log_line_limit" value="<%= log_line_limit%>"/>'+
+      '</div><div class="form-group">'+
+        '<label>Log Email Address</label>'+
+        '<input data-key="log_email" value="<%= log_email%>"/>'+
+      '</div>'+
+      '<div class="log_buttons">'+
+        '<button type="button" id="_viewLogsBtn">View Logs</button>'+
+        '<button type="button" id="_clearLogsBtn">Clear Logs</button>'+
+        '<button type="button" id="_sendLogsBtn">Send Logs</button>'+
+      '</div>'+
+  '</fieldset>'+
+'</div>'+
+'<div class="hidden" id="_logsViewPanel">'+
+  '<div><span id="_closeViewBtn">Close</span></div>'+
+  '<div id="_logViewDiv"></div>'+
+'</div>'
+  ],
+  "_myEvents": {
+    "click #_viewLogsBtn": "viewLogs",
+    "click #_clearLogsBtn": "clearLogs",
+    "click #_sendLogsBtn": "sendLogs",
+    "click #_closeViewBtn": "closeViewLogs"
+  },
+  "viewLogs": function() {
+    var logs = $fh.forms.log.getPolishedLogs();
+    var logStr = logs.join("");
+    this.$el.find("#_logViewDiv").html(logStr);
+    this.$el.find("#_logsViewPanel").show();
+  },
+
+  "clearLogs":function(){
+    var self=this;
+    $fh.forms.log.clearLogs(function(){
+      self.$el.find("#_logViewDiv").html("");
+      alert("Logs cleared.");
+    });
+  },
+  "sendLogs":function(){
+    $fh.forms.log.sendLogs(function(err){
+      if (err){
+        alert(err);
+      }else{
+        alert("Log has been sent to:"+$fh.forms.config.get("log_email"));
+      }
+    });
+  },  
+  "closeViewLogs":function(){
+    this.$el.find("#_logsViewPanel").hide();
+  },
+  "events": {},
+  "initialize": function() {
+    this.events = _.extend({}, this._myEvents, this.events);
+  },
+  "render": function() {
+    this.$el.html("");
+    var props = this.getConfigModel().getProps();
+    var html = _.template(this.templates.join(""), props);
+    this.$el.append(html);
+    return this;
+  },
+  "getConfigModel": function() {
+    return $fh.forms.config;
+  },
+  "save": function(cb) {
+    var inputs = this.$el.find("input,select,textarea");
+    var data = {};
+
+    inputs.each(function() {
+      var key = $(this).data().key;
+      var val = $(this).val();
+      data[key] = val;
+      if ($(this).attr("type") && $(this).attr("type").toLowerCase() == "checkbox") {
+        if (!$(this).attr("checked")) {
+          data[key] = false;
+        }
+      }
+    });
+    var model = this.getConfigModel();
+    model.fromJSON(data);
+    model.saveLocal(cb);
+  }
 });
 if (typeof $fh == 'undefined') {
   $fh = {};
@@ -3994,6 +4146,7 @@ $fh.forms.renderFormList = function (params, cb) {
 };
 $fh.forms.backbone = {};
 $fh.forms.backbone.FormView = FormView;
+$fh.forms.backbone.ConfigView=ConfigView;
 
 
 //end  module;

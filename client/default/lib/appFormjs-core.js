@@ -36,7 +36,10 @@ var appForm = function (module) {
               appForm.models.forms.refresh(true, function (err) {
                 if (err)
                   console.error(err);
-                cb();
+                appForm.models.log.loadLocal(function(){
+                  cb();
+                });
+
               });
             } else {
               cb();
@@ -53,12 +56,13 @@ var appForm = function (module) {
     // });
     return module;
   }(appForm || {});
-appForm.utils = function (module) {
+appForm.utils = function(module) {
   module.extend = extend;
   module.localId = localId;
   module.md5 = md5;
   module.getTime = getTime;
   module.isPhoneGap = isPhoneGap;
+  module.send=send;
   function extend(child, parent) {
 
     if (parent.constructor && parent.constructor == Function) {
@@ -71,6 +75,7 @@ appForm.utils = function (module) {
       }
     }
   }
+
   function getTime(timezoneOffset) {
     var now = new Date();
     if (timezoneOffset) {
@@ -79,6 +84,7 @@ appForm.utils = function (module) {
       return now;
     }
   }
+
   function localId(model) {
     var props = model.getProps();
     var _id = props._id;
@@ -95,17 +101,17 @@ appForm.utils = function (module) {
     }
   }
   /**
-     * md5 hash a string
-     * @param  {[type]}   str [description]
-     * @param  {Function} cb  (err,md5str)
-     * @return {[type]}       [description]
-     */
+   * md5 hash a string
+   * @param  {[type]}   str [description]
+   * @param  {Function} cb  (err,md5str)
+   * @return {[type]}       [description]
+   */
   function md5(str, cb) {
     if (typeof $fh != 'undefined' && $fh.hash) {
       $fh.hash({
         algorithm: 'MD5',
         text: str
-      }, function (result) {
+      }, function(result) {
         if (result && result.hashvalue) {
           cb(null, result.hashvalue);
         } else {
@@ -116,6 +122,7 @@ appForm.utils = function (module) {
       cb('Crypto not found');
     }
   }
+
   function isPhoneGap() {
     //http://stackoverflow.com/questions/10347539/detect-between-a-mobile-browser-or-a-phonegap-application
     //may break.
@@ -125,6 +132,14 @@ appForm.utils = function (module) {
     } else {
       return false;
     }
+  }
+
+  function send(params,cb){
+    $fh.send(params,function(){
+      cb(null);
+    },function(msg){
+      cb(msg);
+    });
   }
   return module;
 }(appForm.utils || {});
@@ -141,6 +156,7 @@ appForm.utils = function (module) {
   };
   var fileSystemAvailable = false;
   var _requestFileSystem = function () {
+    console.error("No file system available");
   };
   //placeholder
   var PERSISTENT = 1;
@@ -177,7 +193,7 @@ appForm.utils = function (module) {
         size = saveObj.size;
       } else if (content instanceof Blob) {
         saveObj = content;
-        size = b.size;
+        size = saveObj.size;
       } else {
         //JSON object
         var stringify = JSON.stringify(content);
@@ -324,6 +340,7 @@ appForm.utils = function (module) {
     });
   }
   function _getFileEntry(fileName, size, params, cb) {
+    _checkEnv();
     _requestFileSystem(PERSISTENT, size, function gotFS(fileSystem) {
       fileSystem.root.getFile(fileName, params, function gotFileEntry(fileEntry) {
         cb(null, fileEntry);
@@ -391,12 +408,15 @@ appForm.utils = function (module) {
   var ctx = null;
   var localMediaStream = null;
   function isHtml5CamAvailable() {
+    checkEnv();
     return isHtml5;
   }
   function isPhoneGapAvailable() {
+    checkEnv();
     return isPhoneGap;
   }
   function initHtml5Camera(params, cb) {
+    checkEnv();
     _html5Camera(params, cb);
   }
   function cancelHtml5Camera() {
@@ -407,16 +427,18 @@ appForm.utils = function (module) {
   }
   function takePhoto(params, cb) {
     //use configuration
-    var width = params.width;
-    var height = params.height;
+    var width = params.width || $fh.forms.config.get("targetWidth");
+    var height = params.height || $fh.forms.config.get("targetHeight");
+    var quality=params.quality || $fh.forms.config.get("quality");
     if (isPhoneGap) {
       navigator.camera.getPicture(_phoneGapSuccess(cb), cb, {
-        quality: 100,
+        quality: quality,
         targetWidth: width,
         targetHeight: height,
+        sourceType: params.sourceType,
         saveToPhotoAlbum: false,
-        destinationType: Camera.DestinationType.DATA_URL,
-        encodingType: Camera.EncodingType.PNG
+        destinationType: Camera.DestinationType.FILE_URI,
+        encodingType: Camera.EncodingType.JPEG
       });
     } else if (isHtml5) {
       snapshot(params, cb);
@@ -431,8 +453,8 @@ appForm.utils = function (module) {
     };
   }
   function _html5Camera(params, cb) {
-    var width = params.width;
-    var height = params.height;
+    var width = params.width || $fh.forms.config.get("targetWidth");
+    var height = params.height || $fh.forms.config.get("targetHeight");
     video.width = 1024;
     //TODO configuration-webcam resolution
     video.height = 768;
@@ -498,6 +520,34 @@ appForm.utils = function (module) {
   return module;
 }(appForm.utils || {});
 appForm.web = function (module) {
+
+  module.uploadFile = function(url, fileProps, cb){
+    var filePath = fileProps.fullPath;
+
+    var success = function (r) {
+      console.log("upload to url ", url, " sucessfull");
+      r.response = r.response || {};
+      if(typeof r.response == "string"){
+        r.response = JSON.parse(r.response);
+      }
+      cb(null, r.response);
+    };
+
+    var fail = function (error) {
+      console.error("An error uploading a file has occurred: Code = " + error.code);
+      console.log("upload error source " + error.source);
+      console.log("upload error target " + error.target);
+      cb(error);
+    };
+
+    var options = new FileUploadOptions();
+    options.fileName = fileProps.fileName;
+    options.mimeType = fileProps.contentType;
+
+    var ft = new FileTransfer();
+    ft.upload(filePath, encodeURI(url), success, fail, options);
+  };
+
   return module;
 }(appForm.web || {});
 appForm.web.ajax = function (module) {
@@ -508,6 +558,7 @@ appForm.web.ajax = function (module) {
   function _myAjax() {
   }
   function get(url, cb) {
+    console.log(url);
     _ajax({
       'url': url,
       'type': 'GET',
@@ -664,38 +715,41 @@ appForm.stores = function (module) {
 /**
  * Local storage stores a model's json definition persistently.
  */
-appForm.stores = function (module) {
+appForm.stores = function(module) {
   //implementation
   var utils = appForm.utils;
   var fileSystem = utils.fileSystem;
-  var _fileSystemAvailable = function () {
-  };
+  var _fileSystemAvailable = function() {};
   //placeholder
   function LocalStorage() {
     appForm.stores.Store.call(this, 'LocalStorage');
   }
   appForm.utils.extend(LocalStorage, appForm.stores.Store);
   //store a model to local storage
-  LocalStorage.prototype.create = function (model, cb) {
+  LocalStorage.prototype.create = function(model, cb) {
     var key = utils.localId(model);
     model.setLocalId(key);
     this.update(model, cb);
   };
   //read a model from local storage
-  LocalStorage.prototype.read = function (model, cb) {
-    var key = model.getLocalId();
-    if (key != null) {
-      _fhData({
-        'act': 'load',
-        'key': key.toString()
-      }, cb, cb);
+  LocalStorage.prototype.read = function(model, cb) {
+    if (model.get("_type") == "offlineTest") {
+      cb(null, {});
     } else {
-      //model does not exist in local storage if key is null.
-      cb(null, null);
+      var key = model.getLocalId();
+      if (key != null) {
+        _fhData({
+          'act': 'load',
+          'key': key.toString()
+        }, cb, cb);
+      } else {
+        //model does not exist in local storage if key is null.
+        cb(null, null);
+      }
     }
   };
   //update a model
-  LocalStorage.prototype.update = function (model, cb) {
+  LocalStorage.prototype.update = function(model, cb) {
     var key = model.getLocalId();
     var data = model.getProps();
     var dataStr = JSON.stringify(data);
@@ -706,14 +760,14 @@ appForm.stores = function (module) {
     }, cb, cb);
   };
   //delete a model
-  LocalStorage.prototype["delete"] = function (model, cb) {
+  LocalStorage.prototype["delete"] = function(model, cb) {
     var key = model.getLocalId();
     _fhData({
       'act': 'remove',
       'key': key.toString()
     }, cb, cb);
   };
-  LocalStorage.prototype.upsert = function (model, cb) {
+  LocalStorage.prototype.upsert = function(model, cb) {
     var key = model.getLocalId();
     if (key == null) {
       this.create(model, cb);
@@ -721,17 +775,17 @@ appForm.stores = function (module) {
       this.update(model, cb);
     }
   };
-  LocalStorage.prototype.switchFileSystem = function (isOn) {
-    _fileSystemAvailable = function () {
+  LocalStorage.prototype.switchFileSystem = function(isOn) {
+    _fileSystemAvailable = function() {
       return isOn;
     };
   };
-  LocalStorage.prototype.defaultStorage = function () {
-    _fileSystemAvailable = function () {
+  LocalStorage.prototype.defaultStorage = function() {
+    _fileSystemAvailable = function() {
       return fileSystem.isFileSystemAvailable();
     };
   };
-  _fileSystemAvailable = function () {
+  _fileSystemAvailable = function() {
     return fileSystem.isFileSystemAvailable();
   };
   //use different local storage model according to environment
@@ -745,6 +799,9 @@ appForm.stores = function (module) {
   //use $fh data
   function _fhLSData(options, success, failure) {
     // console.log(options);
+    //allow for no $fh api in studio
+    if(! $fh || ! $fh.data) return success();
+
     $fh.data(options, function (res) {
       if (typeof res == 'undefined') {
         res = {
@@ -765,13 +822,13 @@ appForm.stores = function (module) {
       // console.log('fail: msg= ' + msg);
       if (typeof failure !== 'undefined') {
         return failure(msg, {});
-      } else {
-      }
+      } else {}
     }
+
     function filenameForKey(key, cb) {
-      var appid = $fh && $fh.app_props ? $fh.app_props.appid : '';
+      var appid =appForm.config.get("appId","unknownAppId");
       key = key + appid;
-      utils.md5(key, function (err, hash) {
+      utils.md5(key, function(err, hash) {
         if (err) {
           hash = key;
         }
@@ -796,9 +853,10 @@ appForm.stores = function (module) {
         }
       });
     }
+
     function save(key, value) {
-      filenameForKey(key, function (hash) {
-        fileSystem.save(hash, value, function (err, res) {
+      filenameForKey(key, function(hash) {
+        fileSystem.save(hash, value, function(err, res) {
           if (err) {
             fail(err);
           } else {
@@ -807,10 +865,11 @@ appForm.stores = function (module) {
         });
       });
     }
+
     function remove(key) {
-      filenameForKey(key, function (hash) {
+      filenameForKey(key, function(hash) {
         // console.log('remove: ' + key + '. Filename: ' + hash);
-        fileSystem.remove(hash, function (err) {
+        fileSystem.remove(hash, function(err) {
           if (err) {
             if (err.name == 'NotFoundError' || err.code == 1) {
               //same respons of $fh.data if key not found.
@@ -824,9 +883,10 @@ appForm.stores = function (module) {
         });
       });
     }
+
     function load(key) {
-      filenameForKey(key, function (hash) {
-        fileSystem.readAsText(hash, function (err, text) {
+      filenameForKey(key, function(hash) {
+        fileSystem.readAsText(hash, function(err, text) {
           if (err) {
             if (err.name == 'NotFoundError' || err.code == 1) {
               //same respons of $fh.data if key not found.
@@ -857,72 +917,93 @@ appForm.stores = function (module) {
   module.localStorage = new LocalStorage();
   return module;
 }(appForm.stores || {});
-appForm.stores = function (module) {
+appForm.stores = function(module) {
   var Store = appForm.stores.Store;
   module.mBaaS = new MBaaS();
+
   function MBaaS() {
     Store.call(this, 'MBaaS');
   }
   appForm.utils.extend(MBaaS, Store);
-  MBaaS.prototype.create = function (model, cb) {
-    var url = _getUrl(model);
-    appForm.web.ajax.post(url, model.getProps(), cb);
+  MBaaS.prototype.checkStudio = function() {
+    return appForm.config.get("studioMode");
   };
-  MBaaS.prototype.read = function (model, cb) {
-    var url = _getUrl(model);
-    appForm.web.ajax.get(url, cb);
+  MBaaS.prototype.create = function(model, cb) {
+    if (this.checkStudio()) {
+      cb("Studio mode not supported");
+    } else {
+      var url = _getUrl(model);
+      appForm.web.ajax.post(url, model.getProps(), cb);
+    }
+
   };
-  MBaaS.prototype.update = function (model, cb) {
+  MBaaS.prototype.read = function(model, cb) {
+    if (this.checkStudio()) {
+      cb("Studio mode not supported");
+    } else {
+      if (model.get("_type") == "offlineTest") {
+        cb("offlinetest. ignore");
+      } else {
+        var url = _getUrl(model);
+        appForm.web.ajax.get(url, cb);
+      }
+    }
   };
-  MBaaS.prototype["delete"] = function (model, cb) {
-  };
+  MBaaS.prototype.update = function(model, cb) {};
+  MBaaS.prototype["delete"] = function(model, cb) {};
   //@Deprecated use create instead
-  MBaaS.prototype.completeSubmission = function (submissionToComplete, cb) {
+  MBaaS.prototype.completeSubmission = function(submissionToComplete, cb) {
     var url = _getUrl(submissionToComplete);
     appForm.web.ajax.post(url, {}, cb);
   };
-  MBaaS.prototype.submissionStatus = function (submission, cb) {
+  MBaaS.prototype.submissionStatus = function(submission, cb) {
     var url = _getUrl(submission);
     appForm.web.ajax.get(url, cb);
   };
+
   function _getUrl(model) {
     var type = model.get('_type');
     var host = appForm.config.get('cloudHost');
     var mBaaSBaseUrl = appForm.config.get('mbaasBaseUrl');
     var formUrls = appForm.config.get('formUrls');
-    var relativeUrl="";
+    var relativeUrl = "";
     if (formUrls[type]) {
       relativeUrl = formUrls[type];
     } else {
-      throw 'type not found to get url:' + type;
+      console.error('type not found to get url:' + type);
     }
     var url = host + mBaaSBaseUrl + relativeUrl;
     var props = {};
     props.appId = appForm.config.get('appId');
     //Theme and forms do not require any parameters that are not in _fh
     switch (type) {
-    case 'form':
-      props.formId = model.get('_id');
-      break;
-    case 'formSubmission':
-      props.formId = model.getFormId();
-      break;
-    case 'fileSubmission':
-      props.submissionId = model.getSubmissionId();
-      props.hashName = model.getHashName();
-      props.fieldId = model.getFieldId();
-      break;
-    case 'base64fileSubmission':
-      props.submissionId = model.getSubmissionId();
-      props.hashName = model.getHashName();
-      props.fieldId = model.getFieldId();
-      break;
-    case 'submissionStatus':
-      props.submissionId = model.get('submissionId');
-      break;
-    case 'completeSubmission':
-      props.submissionId = model.get('submissionId');
-      break;
+      case 'config':
+        props.appid = model.get("appId");
+        break;
+      case 'form':
+        props.formId = model.get('_id');
+        break;
+      case 'formSubmission':
+        props.formId = model.getFormId();
+        break;
+      case 'fileSubmission':
+        props.submissionId = model.getSubmissionId();
+        props.hashName = model.getHashName();
+        props.fieldId = model.getFieldId();
+        break;
+      case 'base64fileSubmission':
+        props.submissionId = model.getSubmissionId();
+        props.hashName = model.getHashName();
+        props.fieldId = model.getFieldId();
+        break;
+      case 'submissionStatus':
+        props.submissionId = model.get('submissionId');
+        break;
+      case 'completeSubmission':
+        props.submissionId = model.get('submissionId');
+        break;
+      case 'offlineTest':
+        return "http://127.0.0.1:8453";
     }
     for (var key in props) {
       url = url.replace(':' + key, props[key]);
@@ -985,6 +1066,23 @@ appForm.stores = function (module) {
           args.push(true);
           cb.apply({}, args);
         });
+      }
+    });
+  };
+
+  /**
+   * Attempt to run refresh read first, if failed, run read.
+   * @param  {[type]}   model [description]
+   * @param  {Function} cb    [description]
+   * @return {[type]}         [description]
+   */
+  DataAgent.prototype.attemptRead=function(model,cb){
+    var self=this;
+    self.refreshRead(model,function(err){
+      if (err){
+        self.read(model,cb);
+      }else{
+        cb.apply({},arguments);
       }
     });
   };
@@ -1109,7 +1207,7 @@ appForm.models = function (module) {
       fromRemote = false;
     }
     if (fromRemote) {
-      dataAgent.refreshRead(this, _handler);
+      dataAgent.attemptRead(this, _handler);
     } else {
       dataAgent.read(this, _handler);
     }
@@ -1121,6 +1219,18 @@ appForm.models = function (module) {
         cb(err, that);
       }
     }
+  };
+  Model.prototype.attemptRefresh=function(cb){
+    var dataAgent = this.getDataAgent();
+    var self=this;
+    dataAgent.attemptRead(this,function(err,res){
+      if (!err && res){
+        self.fromJSON(res);
+        cb(null,self);
+      }else{
+        cb(err,self);
+      }
+    });
   };
   /**
      * Retrieve model from local storage store
@@ -1171,14 +1281,32 @@ appForm.models = function (module) {
   module.Model = Model;
   return module;
 }(appForm.models || {});
-appForm.models = function (module) {
+appForm.models = function(module) {
   var Model = appForm.models.Model;
+
   function Config() {
-    Model.call(this, { '_type': 'config' });
+    Model.call(this, {
+      '_type': 'config',
+      "_ludid": "config"
+    });
+
   }
   appForm.utils.extend(Config, Model);
   //call in appForm.init
-  Config.prototype.init = function (config, cb) {
+  Config.prototype.init = function(config, cb) {
+    if (config.studioMode) { //running in studio
+      this.set("studioMode", true);
+      this.fromJSON(config);
+      cb();
+    } else {
+      //load hard coded static config first
+      this.staticConfig();
+      //attempt load config from mbaas then local storage.
+      this.refresh(cb);
+    }
+
+  };
+  Config.prototype.staticConfig = function(config) {
     var appid = $fh && $fh.app_props ? $fh.app_props.appid : config.appid;
     var mode = $fh && $fh.app_props ? $fh.app_props.mode : 'dev';
     this.set('appId', appid);
@@ -1186,24 +1314,41 @@ appForm.models = function (module) {
     this.set('timeoutTime', 30000);
     var self = this;
     if ($fh && 'function' === typeof $fh.env) {
-      $fh.env(function (env) {
+      $fh.env(function(env) {
         self.set('deviceId', env.uuid);
       });
     }
     this._initMBaaS();
     //Setting default retry attempts if not set in the config
+    if (config === undefined) {
+      config = {};
+    }
     if (typeof config.submissionRetryAttempts === 'undefined') {
       config.submissionRetryAttempts = 2;
     }
 
-    if(config.submissionTimeout == null){
-      config.submissionTimeout = 20;//Default 20 seconds timeout
+    if (config.submissionTimeout == null) {
+      config.submissionTimeout = 20; //Default 20 seconds timeout
     }
-    
     this.fromJSON(config);
-    cb();
+    this.fromJSON({
+      "sent_save_min": 5,
+      "sent_save_max": 1000,
+      "targetWidth": 100,
+      "targetHeight": 100,
+      "quality": 75,
+      "debug_mode": false,
+      "logger": false,
+      "max_retries": 0,
+      "timeout": 30,
+      "log_line_limit": 300,
+      "log_email": "logs.enterpriseplc@feedhenry.com",
+      "log_level": 2,
+      "log_levels": ["error", "warning", "log", "debug"],
+      "config_admin_user": true
+    });
   };
-  Config.prototype._initMBaaS = function () {
+  Config.prototype._initMBaaS = function() {
     var cloud_props = $fh.cloud_props;
     var app_props = $fh.app_props;
     var cloudUrl;
@@ -1233,12 +1378,25 @@ appForm.models = function (module) {
       'fileSubmission': '/forms/:appId/:submissionId/:fieldId/:hashName/submitFormFile',
       'base64fileSubmission': '/forms/:appId/:submissionId/:fieldId/:hashName/submitFormFileBase64',
       'submissionStatus': '/forms/:appId/:submissionId/status',
-      'completeSubmission': '/forms/:appId/:submissionId/completeSubmission'
+      'completeSubmission': '/forms/:appId/:submissionId/completeSubmission',
+      "config": '/forms/:appid/config'
     });
+  };
+  Config.prototype.saveLocal = function(cb){
+    if(this.get("config_admin_user") === true){
+      Model.prototype.saveLocal.call(this, cb);
+    } else {
+      cb("Must be an admin user to change client settings.");
+    }
+  };
+  Config.prototype.set = function(key, value){
+    if(this.get("config_admin_user") === true){
+      Model.prototype.set.call(this, key, value);
+    }
   };
   module.config = new Config();
   return module;
-}(appForm.models || {});
+}(appForm || {});
 appForm.models = function (module) {
   var Model = appForm.models.Model;
   function Forms() {
@@ -1303,10 +1461,10 @@ appForm.models = function (module) {
      * @param {Function} cb         [description]
      */
   function Form(params, cb) {
-    console.log(params, cb);
+    //console.log(params, cb);
     var that = this;
-    var rawMode = params.rawMode;
-    var rawData = params.rawData;
+    var rawMode = params.rawMode || false;
+    var rawData = params.rawData || null;
     var formId = params.formId;
     var fromRemote = params.fromRemote;
 
@@ -1317,7 +1475,7 @@ appForm.models = function (module) {
         fromRemote = false;
       }
     } else {
-      console.log('a callback function is required for initialising form data. new Form (formId, [isFromRemote], cb)');
+      console.error('a callback function is required for initialising form data. new Form (formId, [isFromRemote], cb)');
     }
 
     if (!formId) {
@@ -1329,40 +1487,46 @@ appForm.models = function (module) {
       '_type': 'form'
     });
 
-    if (_forms[formId]) {
+    function checkForUpdate(form){
+      form.refresh(false, function (err, obj) {
+        if (appForm.models.forms.isFormUpdated(form)) {
+          form.refresh(true, function (err, obj1) {
+            if(err){
+              return cb(err, null);
+            }
+            form.initialise();
+
+            _forms[formId] = obj1;
+            return cb(err, obj1);
+          });
+        } else {
+          form.initialise();
+          _forms[formId] = obj;
+          cb(err, obj);
+        }
+      });
+    }
+
+    if (rawMode === false && _forms[formId]) {
       //found form object in mem return it.
-      cb(null, _forms[formId]);
-      return _forms[formId];
+      if(!appForm.models.forms.isFormUpdated(_forms[formId])){
+        cb(null, _forms[formId]);
+        return _forms[formId];
+      }
     }
 
     function processRawFormJSON(){
       that.fromJSON(rawData);
       that.initialise();
 
-      _forms[formId] = this;
+      _forms[formId] = that;
       return cb(null, that);
     }
 
     if (rawMode === true) {
       processRawFormJSON();
     } else {
-      that.refresh(fromRemote, function (err, obj) {
-        if (appForm.models.forms.isFormUpdated(that)) {
-          that.refresh(true, function (err, obj1) {
-            if(err){
-              return cb(err, null);
-            }
-            that.initialise();
-
-            _forms[formId] = obj1;
-            return cb(err, obj1);
-          });
-        } else {
-          that.initialise();
-          _forms[formId] = obj;
-          cb(err, obj);
-        }
-      });
+      checkForUpdate(that);
     }
   }
   appForm.utils.extend(Form, Model);
@@ -1422,7 +1586,7 @@ appForm.models = function (module) {
       var ruleObj = new appForm.models.Rule(constructor);
       var fieldIds = ruleObj.getRelatedFieldId();
       console.log("fieldIds", fieldIds);
-      for (var j = 0; i<fieldIds.length; j++) {
+      for (var j = 0; j<fieldIds.length; j++) {
         var  fieldId = fieldIds[j];
         if (!this.rules[fieldId]) {
           this.rules[fieldId] = [];
@@ -1655,8 +1819,12 @@ appForm.models = function (module) {
      * @return {[type]}              [description]
      */
   Submissions.prototype.saveSubmission = function (submission, cb) {
+    var self=this;
     this.updateSubmissionWithoutSaving(submission);
-    this.saveLocal(cb);
+    this.clearSentSubmission(function(){
+      self.saveLocal(cb);  
+    });
+    
   };
   Submissions.prototype.updateSubmissionWithoutSaving = function (submission) {
     var pruneData = this.pruneSubmission(submission);
@@ -1675,6 +1843,43 @@ appForm.models = function (module) {
     } else {
       // invalid local id.
       console.error('Invalid submission:' + JSON.stringify(submission));
+    }
+  };
+  Submissions.prototype.clearSentSubmission=function(cb){
+    var self=this;
+    var maxSent=$fh.forms.config.get("sent_save_max");
+    var submissions=this.get("submissions");
+    var sentSubmissions=this.getSubmitted();
+    // var maxSent=1;
+    if (sentSubmissions.length>maxSent){
+      sentSubmissions=sentSubmissions.sort(function(a,b){
+        if (a.submittedDate<b.submittedDate){
+          return -1;
+        }else {
+          return 1;
+        }
+      });
+      var toBeRemoved=[];
+      while (sentSubmissions.length>maxSent){
+        toBeRemoved.push(sentSubmissions.pop());
+      }
+      var count=toBeRemoved.length;
+      for (var i=0;i<toBeRemoved.length;i++){
+        var subMeta=toBeRemoved[i];
+        self.getSubmissionByMeta(subMeta,function(err,submission){
+          submission.clearLocal(function(err){
+            if (err){
+              console.error(err);
+            }
+            count--;
+            if (count===0){
+              cb(null,null);
+            }
+          });
+        });
+      }
+    }else{
+      cb(null,null);
     }
   };
   Submissions.prototype.findByFormId = function (formId) {
@@ -1716,7 +1921,7 @@ appForm.models = function (module) {
         'deviceFormTimestamp',
         'errorMessage',
         'submissionStartedTimestamp',
-        'submitDate'
+        'submittedDate'
       ];
     var data = submission.getProps();
     var rtn = {};
@@ -2074,7 +2279,7 @@ appForm.models = function(module) {
       this.set('status', status);
       this.saveToList(function(err) {
         if (err) {
-          console.log(err);
+          console.error(err);
         }
       });
       this.saveLocal(cb);
@@ -2095,7 +2300,7 @@ appForm.models = function(module) {
         } else {
           ut.set("error", null);
           ut.saveLocal(function(err) {
-            if (err) console.log(err);
+            if (err) console.error(err);
           });
           that.emit("inprogress", ut);
           ut.on("progress", function(progress) {
@@ -2436,6 +2641,19 @@ appForm.models = function (module) {
       'validation': {},
       'definition': {}
     });
+  };
+  Field.prototype.getPhotoOptions = function(){
+    var photoOptions = {
+      "targetWidth" : null,
+      "targetHeight" : null,
+      "quality" : null
+    };
+
+    var fieldDef = this.getFieldDefinition();
+    photoOptions.targetWidth = fieldDef.photoHeight || appForm.config.photoHeight || 200;
+    photoOptions.targetHeight = fieldDef.photoHeight || appForm.config.photoHeight || 200;
+    photoOptions.quality = fieldDef.photoQuality || appForm.config.photoQuality || 50;
+    return photoOptions;
   };
   Field.prototype.isRepeating = function () {
     return this.get('repeating', false);
@@ -2805,7 +3023,6 @@ appForm.models = function (module) {
       return this.get("fields",[]);
   };
   Page.prototype.getFieldModelList=function(){
-      console.log("fieldModelList", this.fieldsIds);
       var list=[];
       for (var i=0;i<this.fieldsIds.length;i++){
           list.push(this.form.getFieldModelById(this.fieldsIds[i]));
@@ -2815,7 +3032,7 @@ appForm.models = function (module) {
   Page.prototype.checkForSectionBreaks=function(){ //Checking for any sections
     for (var i=0;i<this.fieldsIds.length;i++){
       var fieldModel = this.form.getFieldModelById(this.fieldsIds[i]);
-      if(fieldModel.getType() == "sectionBreak"){
+      if(fieldModel && fieldModel.getType() == "sectionBreak"){
         return true;
       }
     }
@@ -2875,7 +3092,6 @@ appForm.models = function (module) {
     return this.get('fields', []);
   };
   Page.prototype.getFieldModelList = function () {
-    console.log('fieldModelList', this.fieldsIds);
     var list = [];
     for (var i = 0; i < this.fieldsIds.length; i++) {
       list.push(this.form.getFieldModelById(this.fieldsIds[i]));
@@ -2962,8 +3178,7 @@ appForm.models = function (module) {
       '_ludid': 'uploadManager_queue'
     });
     this.set('taskQueue', []);
-    this.timeOut = 60;
-    //60 seconds. TODO: define in config
+    this.timeOut = appForm.config.get("timeout");
     this.sending = false;
     this.timerInterval = 200;
     this.sendingStart = appForm.utils.getTime();
@@ -3034,7 +3249,7 @@ appForm.models = function (module) {
       });
       this.saveLocal(function (err) {
         if (err)
-          console.log(err);
+          console.error(err);
       });
     } else {
       cb(null, null);
@@ -3088,14 +3303,14 @@ appForm.models = function (module) {
     this.get('taskQueue').push(uploadTaskId);
     this.saveLocal(function (err) {
       if (err)
-        console.log(err);
+        console.error(err);
     });
   };
   UploadManager.prototype.shift = function () {
     var shiftedTask = this.get('taskQueue').shift();
     this.saveLocal(function (err) {
       if (err)
-        console.log(err);
+        console.error(err);
     });
     return shiftedTask;
   };
@@ -3369,38 +3584,50 @@ appForm.models = function (module) {
    * @return {[type]}      [description]
    */
   UploadTask.prototype.uploadForm = function (cb) {
-    var formSub = this.get('jsonTask');
     var that = this;
+
+    function processUploadDataResult(res){
+      if(res.error){
+        console.error("Error submitting form " + res.error);
+        return cb("Error submitting form " + res.error);
+      } else {
+        var submissionId = res.submissionId;
+        // form data submitted successfully.
+        formSub.lastUpdate = appForm.utils.getTime();
+        that.set('submissionId', submissionId);
+        that.increProgress();
+        that.saveLocal(function (err) {
+          if (err) {
+            console.error(err);
+          }
+        });
+        that.emit('progress', that.getProgress());
+        return cb(null);
+      }
+    }
+
+    var formSub = this.get('jsonTask');
+
     var formSubmissionModel = new appForm.models.FormSubmission(formSub);
     this.getRemoteStore().create(formSubmissionModel, function (err, res) {
       if (err) {
-        cb(err);
+        return cb(err);
       } else {
-        var submissionId = res.submissionId;
         var updatedFormDefinition = res.updatedFormDefinition;
+
         if (updatedFormDefinition) {
           // remote form definition is updated
-          that.refreshForm(function (err) {
+          that.refreshForm(updatedFormDefinition, function (err) {
             //refresh form def in parallel. maybe not needed.
+            console.log("Form Updated, refreshed");
             if (err) {
               console.error(err);
             }
+
+            processUploadDataResult(res);
           });
-          var errMsg = 'Form definition is out of date.';
-          cb(errMsg);
         } else {
-          // form data submitted successfully.
-          formSub.lastUpdate = appForm.utils.getTime();
-          that.set('submissionId', submissionId);
-          // that.set("currentTask", 0);
-          that.increProgress();
-          that.saveLocal(function (err) {
-            if (err) {
-              console.error(err);
-            }
-          });
-          that.emit('progress', that.getProgress());
-          return cb(null);
+          processUploadDataResult(res);
         }
       }
     });
@@ -3567,14 +3794,14 @@ appForm.models = function (module) {
     var that = this;
     function _handler(err) {
       if (err) {
-        console.log('Err, retrying:', err);
+        console.error('Err, retrying:', err);
         //If the upload has encountered an error -- flag the submission as needing a retry on the next tick -- User should be insulated from an error until the retries are finished.
         that.increRetryAttempts();
-        if (that.getRetryAttempts() <= appForm.config.get('submissionRetryAttempts')) {
+        if (that.getRetryAttempts() <= appForm.config.get('max_retries')) {
           that.setRetryNeeded(true);
           that.saveLocal(function (err) {
             if (err)
-              console.log(err);
+              console.error(err);
             cb();
           });
         } else {
@@ -3590,7 +3817,7 @@ appForm.models = function (module) {
         that.setRetryNeeded(false);
         that.saveLocal(function (_err) {
           if (_err)
-            console.log(_err);
+            console.error(_err);
         });
         that.submissionModel(function (err, submission) {
           if (err) {
@@ -3764,18 +3991,15 @@ appForm.models = function (module) {
    * @param  {Function} cb [description]
    * @return {[type]}      [description]
    */
-  UploadTask.prototype.refreshForm = function (cb) {
+  UploadTask.prototype.refreshForm = function (updatedForm, cb) {
     var formId = this.get('formId');
-    new appForm.models.Form({ 'formId': formId }, function (err, form) {
+    new appForm.models.Form({'formId': formId, 'rawMode': true, 'rawData' : updatedForm }, function (err, form) {
       if (err) {
         console.error(err);
       }
-      form.refresh(true, function (err) {
-        if (err) {
-          console.error(err);
-        }
-        cb();
-      });
+
+      console.log('successfully updated form the form with id ' + updatedForm._id);
+      cb();
     });
   };
   UploadTask.prototype.submissionModel = function (cb) {
@@ -3804,6 +4028,163 @@ appForm.models = function (module) {
   return module;
 }(appForm.models || {});
 /**
+ * Async log module
+ * @param  {[type]} module [description]
+ * @return {[type]}        [description]
+ */
+appForm.models = (function(module) {
+  var Model = appForm.models.Model;
+
+  function Log() {
+    Model.call(this, {
+      '_type': 'log',
+      "_ludid": "log"
+    });
+    this.set("logs", []);
+    this.isWriting = false;
+    this.moreToWrite = false;
+    //    appForm.
+    //    this.loadLocal(function() {});
+  }
+  appForm.utils.extend(Log, Model);
+
+  Log.prototype.info = function(logLevel, msgs) {
+    if (appForm.config.get("logger") == "true") {
+      var levelString = "";
+      var curLevel = appForm.config.get("log_level");
+      var log_levels = appForm.config.get("log_levels");
+      var self = this;
+      if (typeof logLevel == "string") {
+        levelString = logLevel;
+        logLevel = log_levels.indexOf(logLevel.toLowerCase());
+      } else {
+        levelString = log_levels[logLevel];
+        if (logLevel >= log_levels.length) {
+          levelString = "Unknown";
+        }
+      }
+      if (curLevel < logLevel) {
+        return;
+      } else {
+        var args = Array.prototype.splice.call(arguments, 0);
+        var logs = self.get("logs");
+        args.shift();
+        while (args.length > 0) {
+          logs.push(self.wrap(args.shift(), levelString));
+          if (logs.length > appForm.config.get("log_line_limit")) {
+            logs.shift();
+          }
+        }
+        if (self.isWriting) {
+          self.moreToWrite = true;
+        } else {
+          var _recursiveHandler = function() {
+            if (self.moreToWrite) {
+              self.moreToWrite = false;
+              self.write(_recursiveHandler);
+            }
+          };
+          self.write(_recursiveHandler);
+        }
+      }
+    }
+  };
+  Log.prototype.wrap = function(msg, levelString) {
+    var now = new Date();
+    var dateStr = now.toISOString();
+    if (typeof msg == "object") {
+      msg = JSON.stringify(msg);
+    }
+    var finalMsg = dateStr + " " + levelString.toUpperCase() + " " + msg;
+    return finalMsg;
+  };
+  Log.prototype.getPolishedLogs = function() {
+    var arr = [];
+    var logs = this.getLogs();
+    var patterns = [{
+      reg: /^.+\sERROR\s.*/,
+      color: appForm.config.get('color_error') || "#FF0000"
+    }, {
+      reg: /^.+\sWARNING\s.*/,
+      color: appForm.config.get('color_warning') || "#FF9933"
+    }, {
+      reg: /^.+\sLOG\s.*/,
+      color: appForm.config.get('color_log') || "#009900"
+    }, {
+      reg: /^.+\sDEBUG\s.*/,
+      color: appForm.config.get('color_debug') || "#3366FF"
+    }, {
+      reg: /^.+\sUNKNOWN\s.*/,
+      color: appForm.config.get('color_unknown') || "#000000"
+    }];
+    for (var i = 0; i < logs.length; i++) {
+      var log = logs[i];
+      for (var j = 0; j < patterns.length; j++) {
+        var p = patterns[j];
+        if (p.reg.test(log)) {
+          arr.unshift("<div style='color:" + p.color + ";'>" + log + "</div>");
+          break;
+        }
+      }
+    }
+    return arr;
+  };
+  Log.prototype.write = function(cb) {
+    var self = this;
+    self.isWriting = true;
+    self.saveLocal(function() {
+      self.isWriting = false;
+      cb();
+    });
+  };
+  Log.prototype.e = function() {
+    var args = Array.prototype.splice.call(arguments, 0);
+    args.unshift("error");
+    this.info.apply(this, args);
+  };
+  Log.prototype.w = function() {
+    var args = Array.prototype.splice.call(arguments, 0);
+    args.unshift("warning");
+    this.info.apply(this, args);
+  };
+  Log.prototype.l = function() {
+    var args = Array.prototype.splice.call(arguments, 0);
+    args.unshift("log");
+    this.info.apply(this, args);
+  };
+  Log.prototype.d = function() {
+    var args = Array.prototype.splice.call(arguments, 0);
+    args.unshift("debug");
+    this.info.apply(this, args);
+  };
+  Log.prototype.getLogs = function() {
+    return this.get("logs");
+  };
+  Log.prototype.clearLogs = function(cb) {
+    this.set("logs", []);
+    this.saveLocal(function() {
+      if (cb) {
+        cb();
+      }
+    });
+  };
+  Log.prototype.sendLogs = function(cb) {
+    var email = appForm.config.get("log_email");
+    var config = appForm.config.getProps();
+    var logs = this.getLogs();
+    var params = {
+      "type": "email",
+      "to": email,
+      "subject": "App Forms App Logs",
+      "body": "Configuration:\n" + JSON.stringify(config) + "\n\nApp Logs:\n" + logs.join("\n")
+    };
+    appForm.utils.send(params, cb);
+  };
+  module.log = new Log();
+  appForm.log = module.log;
+  return module;
+})(appForm.models || {});
+/**
  * FeedHenry License
  */
 appForm.api = function (module) {
@@ -3814,6 +4195,7 @@ appForm.api = function (module) {
   module.getSubmissions = getSubmissions;
   module.init = appForm.init;
   module.config = appForm.models.config;
+  module.log=appForm.models.log;
   var _submissions = null;
   /**
      * Retrieve forms model. It contains forms list. check forms model usage
@@ -5390,7 +5772,7 @@ function rulesEngine (formDef) {
 
         function checkRepeat(numSubmittedValues, fieldDefinition, cb) {
 
-          if(fieldDefinition.repeating && fieldDefinition.fieldOptions.definition){
+          if(fieldDefinition.repeating && fieldDefinition.fieldOptions && fieldDefinition.fieldOptions.definition){
             if(fieldDefinition.fieldOptions.definition.minRepeat){
               if(numSubmittedValues < fieldDefinition.fieldOptions.definition.minRepeat){
                 return cb(undefined, "Expected min of " + fieldDefinition.fieldOptions.definition.minRepeat + " values for field " + fieldDefinition.name + " but got " + numSubmittedValues);

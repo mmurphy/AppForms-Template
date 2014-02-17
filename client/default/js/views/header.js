@@ -110,13 +110,6 @@ HeaderView = Backbone.View.extend({
     this.hideAll();
     App.views.settings.show();
   },
-
-  showAbout: function () {
-//    if(App.views.about) {
-//      App.views.about.show();
-//    }
-  },
-
   hideAll: function() {
     window.scrollTo(0, 0);
     App.views.form_list.hide();

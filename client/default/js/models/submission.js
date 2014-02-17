@@ -8,7 +8,6 @@ SubmissionModel = Backbone.Model.extend({
         } else {
 
         }
-
     },
     loadSubmission: function(submissionMeta, cb) {
         var self = this;
@@ -73,7 +72,6 @@ SubmissionModel = Backbone.Model.extend({
         }
     },
     initialize: function(submissionMeta, options) {
-
         var self = this;
         this.submissionMeta = submissionMeta;
         this.loadSubmission(submissionMeta, function(err, sub) {});
@@ -88,8 +86,9 @@ SubmissionCollection = Backbone.Collection.extend({
     getSubmissionList: function(cb) {
         var self = this;
         $fh.forms.getSubmissions({}, function(err, subList) {
+            console.log("$fh.forms.getSubmissions", self.status);
             if (err) {
-
+                console.log(err);
                 cb(err);
             } else {
                 var status = self.status;
@@ -115,6 +114,43 @@ SubmissionCollection = Backbone.Collection.extend({
         }
     }
 });
+
+SentModel = SubmissionModel.extend({
+});
+
+SentCollection = SubmissionCollection.extend({
+  status:"submitted",
+  model: SentModel
+});
+PendingModel = SubmissionModel.extend({
+
+});
+
+PendingWaitingCollection = SubmissionCollection.extend({
+  status: "pending"
+});
+PendingSubmittingCollection = SubmissionCollection.extend({
+  status: "inprogress"
+});
+
+PendingReviewCollection = SubmissionCollection.extend({
+  status: "error"
+});
+
+DraftModel = SubmissionModel.extend({
+});
+
+DraftsCollection = SubmissionCollection.extend({
+  model: DraftModel,
+  status:"draft"
+});
+
+
+App.collections.drafts = new DraftsCollection();
+App.collections.pending_submitting = new PendingSubmittingCollection();
+App.collections.sent = new SentCollection();
+App.collections.pending_review = new PendingReviewCollection();
+App.collections.pending_waiting = new PendingWaitingCollection();
 
 function refreshSubmissionCollections() {
     App.collections.drafts.fetch();

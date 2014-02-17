@@ -71,12 +71,6 @@ ItemView = Backbone.View.extend({
   submit: function() {
     var model = this.model;
     model.coreModel.upload(function() {});
-    // model.load(function (err,actual ){
-    //   var json = actual.toJSON();
-    //   model.destroy();
-    //   App.collections.pending_submitting.create(json);
-    // });
-
     return false;
   },
 
@@ -85,6 +79,7 @@ ItemView = Backbone.View.extend({
   },
 
   show: function() {
+    
     this.model.load(function(err, actual) {
       var draft = new DraftModel(actual.toJSON());
       App.views.form = new DraftView({
