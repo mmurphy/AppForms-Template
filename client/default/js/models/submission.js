@@ -13,15 +13,18 @@ SubmissionModel = Backbone.Model.extend({
         var self = this;
         $fh.forms.getSubmissions({}, function(err, subList) {
             subList.getSubmissionByMeta(submissionMeta, function(err, submission) {
-                if (err) {
-                    self.trigger("error", err);
-                } else {
-                    self.coreModel = submission;
-                    self.id = submission.getLocalId();
-                }
-                self.initModel();
-                self.trigger("change");
-                cb(err, submission);
+              if (err) {
+                  self.trigger("error", err);
+              } else {
+                  self.coreModel = submission;
+                  self.id = submission.getLocalId();
+              }
+
+              self.coreModel.clearEvents();
+              self.initModel();
+              self.trigger("change");
+
+              cb(err, submission);
             });
         });
     },
@@ -109,7 +112,6 @@ SubmissionCollection = Backbone.Collection.extend({
                 } else {
                     options.success(submissions);
                 }
-
             });
         }
     }

@@ -20,26 +20,29 @@ var appForm = function (module) {
           def[key] = params[key];
         }
       }
+
+
       //init config module
       var config = def.config || {};
       appForm.config = appForm.models.config;
-      appForm.config.init(config, function () {
+      appForm.config.init(config, function (err) {
+        if(err) $fh.forms.log.e("Form config loading error: ", err);
         //Loading the current state of the uploadManager for any upload tasks that are still in progress.
         appForm.models.uploadManager.loadLocal(function (err) {
-          if (err)
-            console.error(err);
+          $fh.forms.log.d("Upload Manager loaded from memory.");
+          if (err) $fh.forms.log.e("Error loading upload manager from memory ", err);
           //init forms module
+          $fh.forms.log.l("Refreshing Theme.");
           appForm.models.theme.refresh(true, function (err) {
-            if (err)
-              console.error(err);
+            if (err) $fh.forms.log.e("Error refreshing theme ", err);
             if (def.updateForms === true) {
+              $fh.forms.log.l("Refreshing Forms.");
               appForm.models.forms.refresh(true, function (err) {
                 if (err)
-                  console.error(err);
+                  $fh.forms.log.e(err);
                 appForm.models.log.loadLocal(function(){
                   cb();
                 });
-
               });
             } else {
               cb();
@@ -48,12 +51,6 @@ var appForm = function (module) {
         });
       });
     }
-
-    // $fh.ready({}, function() {
-    //     appForms.init({},function(){
-    //         console.log("appForm is inited");
-    //     });
-    // });
     return module;
   }(appForm || {});
 appForm.utils = function(module) {
@@ -61,7 +58,6 @@ appForm.utils = function(module) {
   module.localId = localId;
   module.md5 = md5;
   module.getTime = getTime;
-  module.isPhoneGap = isPhoneGap;
   module.send=send;
   function extend(child, parent) {
 
@@ -123,18 +119,8 @@ appForm.utils = function(module) {
     }
   }
 
-  function isPhoneGap() {
-    //http://stackoverflow.com/questions/10347539/detect-between-a-mobile-browser-or-a-phonegap-application
-    //may break.
-    var app = document.URL.indexOf('http://') === -1 && document.URL.indexOf('https://') === -1;
-    if (app) {
-      return true;
-    } else {
-      return false;
-    }
-  }
-
   function send(params,cb){
+    $fh.forms.log.d("Sending mail: ", params);
     $fh.send(params,function(){
       cb(null);
     },function(msg){
@@ -353,7 +339,7 @@ appForm.utils = function (module) {
             _getFileEntry(fileName, size, params, cb);
           });
         } else {
-          // console.error('Failed to get file entry:' + err.message)
+          console.error('Failed to get file entry:' + err.message);
           cb(err);
         }
       });
@@ -426,19 +412,28 @@ appForm.utils = function (module) {
     }
   }
   function takePhoto(params, cb) {
+    $fh.forms.log.d("Taking photo ", params, isPhoneGap);
     //use configuration
-    var width = params.width || $fh.forms.config.get("targetWidth");
-    var height = params.height || $fh.forms.config.get("targetHeight");
-    var quality=params.quality || $fh.forms.config.get("quality");
+    params.targetWidth = params.targetWidth ? params.targetWidth : $fh.forms.config.get("targetWidth", 640);
+    params.targetHeight = params.targetHeight ? params.targetHeight : $fh.forms.config.get("targetHeight", 480);
+    params.quality = params.quality ? params.quality : $fh.forms.config.get("quality", 50);
+
+    var width =  params.targetWidth;
+    var height = params.targetHeight;
+    var quality= params.quality;
+
+
+
     if (isPhoneGap) {
+      params.sourceType = params.sourceType ? params.sourceType : Camera.PictureSourceType.CAMERA;
       navigator.camera.getPicture(_phoneGapSuccess(cb), cb, {
         quality: quality,
         targetWidth: width,
         targetHeight: height,
         sourceType: params.sourceType,
         saveToPhotoAlbum: false,
-        destinationType: Camera.DestinationType.FILE_URI,
-        encodingType: Camera.EncodingType.JPEG
+        destinationType: Camera.DestinationType.DATA_URL,
+        encodingType: Camera.EncodingType.PNG
       });
     } else if (isHtml5) {
       snapshot(params, cb);
@@ -453,11 +448,11 @@ appForm.utils = function (module) {
     };
   }
   function _html5Camera(params, cb) {
-    var width = params.width || $fh.forms.config.get("targetWidth");
-    var height = params.height || $fh.forms.config.get("targetHeight");
-    video.width = 1024;
-    //TODO configuration-webcam resolution
-    video.height = 768;
+    $fh.forms.log.d("Taking photo _html5Camera", params, isPhoneGap);
+    var width = params.targetWidth || $fh.forms.config.get("targetWidth");
+    var height = params.targetHeight || $fh.forms.config.get("targetHeight");
+    video.width = width;
+    video.height = height;
     canvas.width = width;
     canvas.height = height;
     if (!localMediaStream) {
@@ -472,6 +467,7 @@ appForm.utils = function (module) {
     }
   }
   function checkEnv() {
+    $fh.forms.log.d("Checking env");
     if (navigator.camera && navigator.camera.getPicture) {
       // PhoneGap
       isPhoneGap = true;
@@ -503,17 +499,18 @@ appForm.utils = function (module) {
     }
     return false;
   }
-  checkEnv();
+
   function snapshot(params, cb) {
+    $fh.forms.log.d("Snapshot ", params);
     if (localMediaStream) {
-      ctx.drawImage(video, 0, 0, params.width, params.height);
+      ctx.drawImage(video, 0, 0, params.targetWidth, params.targetHeight);
       // "image/webp" works in Chrome.
       // Other browsers will fall back to image/png.
       var base64 = canvas.toDataURL('image/png');
       cancelHtml5Camera();
       cb(null, base64);
     } else {
-      console.error('Media resource is not available');
+      $fh.forms.log.e('Media resource is not available');
       cb('Resource not available');
     }
   }
@@ -522,10 +519,11 @@ appForm.utils = function (module) {
 appForm.web = function (module) {
 
   module.uploadFile = function(url, fileProps, cb){
+    $fh.forms.log.d("uploadFile ", url, fileProps);
     var filePath = fileProps.fullPath;
 
     var success = function (r) {
-      console.log("upload to url ", url, " sucessfull");
+      $fh.forms.log.d("upload to url ", url, " sucessful");
       r.response = r.response || {};
       if(typeof r.response == "string"){
         r.response = JSON.parse(r.response);
@@ -534,16 +532,25 @@ appForm.web = function (module) {
     };
 
     var fail = function (error) {
-      console.error("An error uploading a file has occurred: Code = " + error.code);
-      console.log("upload error source " + error.source);
-      console.log("upload error target " + error.target);
+      $fh.forms.log.e("An error uploading a file has occurred: Code = " + error.code);
+      $fh.forms.log.d("upload error source " + error.source);
+      $fh.forms.log.d("upload error target " + error.target);
       cb(error);
     };
 
     var options = new FileUploadOptions();
-    options.fileName = fileProps.fileName;
-    options.mimeType = fileProps.contentType;
+    options.fileName = fileProps.name;
+    options.mimeType = fileProps.contentType ? fileProps.contentType : "application/octet-stream";
+    options.httpMethod = "https";
+    options.chunkedMode = true;
+    options.fileKey = "file";
 
+    //http://grandiz.com/phonegap-development/phonegap-file-transfer-error-code-3-solved/
+    options.headers = {
+      "Connection": "close"
+    };
+
+    $fh.forms.log.d("Beginning file upload ",url, options);
     var ft = new FileTransfer();
     ft.upload(filePath, encodeURI(url), success, fail, options);
   };
@@ -558,19 +565,22 @@ appForm.web.ajax = function (module) {
   function _myAjax() {
   }
   function get(url, cb) {
-    console.log(url);
+    $fh.forms.log.d("Ajax get ", url);
     _ajax({
       'url': url,
       'type': 'GET',
       'success': function (data, text) {
+        $fh.forms.log.d("Ajax get", url, "Success");
         cb(null, data);
       },
       'error': function (xhr, status, err) {
+        $fh.forms.log.e("Ajax get", url, "Fail", xhr, status, err);
         cb(xhr);
       }
     });
   }
   function post(url, body, cb) {
+    $fh.forms.log.d("Ajax post ", url, body);
     var file = false;
     var formData;
     if (typeof body == 'object') {
@@ -590,9 +600,11 @@ appForm.web.ajax = function (module) {
         'data': body,
         'dataType': 'json',
         'success': function (data, text) {
+          $fh.forms.log.d("Ajax post ", url, " Success");
           cb(null, data);
         },
         'error': function (xhr, status, err) {
+          $fh.forms.log.e("Ajax post ", url, " Fail ", xhr, status, err);
           cb(xhr);
         }
       };
@@ -601,88 +613,6 @@ appForm.web.ajax = function (module) {
     }
     _ajax(param);
   }
-  // function createXMLHttpRequest() {
-  //     try {
-  //         return new XMLHttpRequest();
-  //     } catch (e) {}
-  //     try {
-  //         return new ActiveXObject("Msxml2.XMLHTTP");
-  //     } catch (e) {}
-  //     return null;
-  // }
-  // function get(url, cb) {
-  //     var xhReq = createXMLHttpRequest();
-  //     if (!xhReq) {
-  //         cb({
-  //             error: 'XMLHttpRequest is not supported',
-  //             status: 'not ok'
-  //         }, null);
-  //     }
-  //     xhReq.open("get", url, true);
-  //     xhReq.send(null);
-  //     var requestTimer = setTimeout(function() {
-  //         xhReq.abort();
-  //     }, appForm.config.get("timeoutTime"));
-  //     xhReq.onreadystatechange = function() {
-  //         if (xhReq.readyState !== 4) {
-  //             return;
-  //         }
-  //         //Clear the timer. Request was succesful.
-  //         clearTimeout(requestTimer);
-  //         var serverResponse = xhReq.responseText;
-  //         if (xhReq.status !== 200) {
-  //             return cb({
-  //                 error: 'Status not 200!',
-  //                 status: 'not ok',
-  //                 statusCode: xhReq.status,
-  //                 body: serverResponse
-  //             }, null);
-  //         }
-  //         return cb(null, {
-  //             status: 'ok',
-  //             statusCode: xhReq.status,
-  //             response: serverResponse
-  //         });
-  //     };
-  // }
-  // function post(url, body, cb) {
-  //     var xhReq = createXMLHttpRequest();
-  //     if (!xhReq) {
-  //         cb({
-  //             error: 'XMLHttpRequest is not supported',
-  //             status: 'not ok'
-  //         }, null);
-  //     }
-  //     xhReq.open("POST", url, true);
-  //     //Send the header information along with the request
-  //     xhReq.setRequestHeader("Content-type", "application/json");
-  //     xhReq.setRequestHeader("Connection", "close");
-  //     xhReq.send(body);
-  //     var requestTimer = setTimeout(function() {
-  //         xhReq.abort();
-  //     }, appForm.config.get("timeoutTime"));
-  //     xhReq.onreadystatechange = function() {
-  //         if (xhReq.readyState !== 4) {
-  //             return;
-  //         }
-  //         //Clear the timer. Request was succesful.
-  //         clearTimeout(requestTimer);
-  //         var serverResponse = xhReq.responseText;
-  //         if (xhReq.status !== 200) {
-  //             return cb({
-  //                 error: 'Status not 200!',
-  //                 status: 'not ok',
-  //                 statusCode: xhReq.status,
-  //                 body: serverResponse
-  //             }, null);
-  //         }
-  //         return cb(null, {
-  //             status: 'ok',
-  //             statusCode: xhReq.status,
-  //             response: serverResponse
-  //         });
-  //     };
-  // }
   return module;
 }(appForm.web.ajax || {});
 appForm.stores = function (module) {
@@ -826,7 +756,7 @@ appForm.stores = function(module) {
     }
 
     function filenameForKey(key, cb) {
-      var appid =appForm.config.get("appId","unknownAppId");
+      var appid = appForm.config.get("appId","unknownAppId");
       key = key + appid;
       utils.md5(key, function(err, hash) {
         if (err) {
@@ -868,7 +798,6 @@ appForm.stores = function(module) {
 
     function remove(key) {
       filenameForKey(key, function(hash) {
-        // console.log('remove: ' + key + '. Filename: ' + hash);
         fileSystem.remove(hash, function(err) {
           if (err) {
             if (err.name == 'NotFoundError' || err.code == 1) {
@@ -933,9 +862,12 @@ appForm.stores = function(module) {
       cb("Studio mode not supported");
     } else {
       var url = _getUrl(model);
-      appForm.web.ajax.post(url, model.getProps(), cb);
+      if((model.get("_type") == "fileSubmission" || model.get("_type") == "base64fileSubmission") && (typeof window.Phonegap !== "undefined" || typeof window.cordova !== "undefined")){
+        appForm.web.uploadFile(url, model.getProps(), cb);
+      } else {
+        appForm.web.ajax.post(url, model.getProps(), cb);
+      }
     }
-
   };
   MBaaS.prototype.read = function(model, cb) {
     if (this.checkStudio()) {
@@ -962,6 +894,7 @@ appForm.stores = function(module) {
   };
 
   function _getUrl(model) {
+    $fh.forms.log.d("_getUrl ", model);
     var type = model.get('_type');
     var host = appForm.config.get('cloudHost');
     var mBaaSBaseUrl = appForm.config.get('mbaasBaseUrl');
@@ -970,7 +903,7 @@ appForm.stores = function(module) {
     if (formUrls[type]) {
       relativeUrl = formUrls[type];
     } else {
-      console.error('type not found to get url:' + type);
+      $fh.forms.log.e('type not found to get url:' + type);
     }
     var url = host + mBaaSBaseUrl + relativeUrl;
     var props = {};
@@ -979,6 +912,7 @@ appForm.stores = function(module) {
     switch (type) {
       case 'config':
         props.appid = model.get("appId");
+        props.deviceId = model.get("deviceId");
         break;
       case 'form':
         props.formId = model.get('_id');
@@ -1031,12 +965,13 @@ appForm.stores = function (module) {
      * @return {[type]}         [description]
      */
   DataAgent.prototype.read = function (model, cb) {
+    $fh.forms.log.d("DataAgent read ", model);
     var that = this;
     this.localStore.read(model, function (err, locRes) {
       if (err || !locRes) {
         //local loading failed
         if (err) {
-          console.error(err);
+          $fh.forms.log.e("Error reading model from localStore ", model, err);
         }
         that.refreshRead(model, cb);
       } else {
@@ -1052,12 +987,14 @@ appForm.stores = function (module) {
      * @return {[type]}         [description]
      */
   DataAgent.prototype.refreshRead = function (model, cb) {
+    $fh.forms.log.d("DataAgent refreshRead ", model);
     var that = this;
     this.remoteStore.read(model, function (err, res) {
       if (err) {
-        console.error(err);
+        $fh.forms.log.e("Error reading model from remoteStore ", model, err);
         cb(err);
       } else {
+        $fh.forms.log.d("Model refresh successfull from remoteStore ", model, res);
         //update model from remote response
         model.fromJSON(res);
         //update local storage for the model
@@ -1077,6 +1014,7 @@ appForm.stores = function (module) {
    * @return {[type]}         [description]
    */
   DataAgent.prototype.attemptRead=function(model,cb){
+    $fh.forms.log.d("DataAgent attemptRead ", model);
     var self=this;
     self.refreshRead(model,function(err){
       if (err){
@@ -1118,6 +1056,10 @@ appForm.models = function (module) {
         this.events[name].splice(this.events[name].indexOf(func), 1);
       }
     }
+  };
+
+  Model.prototype.clearEvents = function(){
+    this.events = {};
   };
   Model.prototype.emit = function () {
     var args = Array.prototype.slice.call(arguments, 0);
@@ -1163,27 +1105,7 @@ appForm.models = function (module) {
       console.error(e);
     }
   };
-  // not working properly for nested model data.
-  // Model.prototype.equalTo = function(model) {
-  //     var props = model.getProps();
-  //     for (var key in this.props) {
-  //         if (key=="_localLastUpdate"){
-  //             continue;
-  //         }
-  //         if (this.props[key] != props[key]) {
-  //             return false;
-  //         }
-  //     }
-  //     for (var key in props) {
-  //         if (key=="_localLastUpdate"){
-  //             continue;
-  //         }
-  //         if (this.props[key] != props[key]) {
-  //             return false;
-  //         }
-  //     }
-  //     return true;
-  // }
+
   Model.prototype.touch = function () {
     this.set('_localLastUpdate', appForm.utils.getTime());
   };
@@ -1302,51 +1224,99 @@ appForm.models = function(module) {
       //load hard coded static config first
       this.staticConfig();
       //attempt load config from mbaas then local storage.
-      this.refresh(cb);
+      this.refresh(true, cb);
+    }
+  };
+  Config.prototype.refresh = function (fromRemote, cb) {
+    var dataAgent = this.getDataAgent();
+    var self = this;
+    if (typeof cb == 'undefined') {
+      cb = fromRemote;
+      fromRemote = false;
     }
 
+    function _handler(err, res) {
+      var configObj = {};
+
+      if (!err && res) {
+        if(typeof(res) === "string"){
+          try{
+            configObj = JSON.parse(res);
+          } catch(error){
+            $fh.forms.log.e("Invalid json config defintion from remote", error);
+            configObj = {};
+            return cb(error, null);
+          }
+        } else {
+          configObj = res;
+        }
+
+        self.set("defaultConfigValues", configObj);
+        self.saveLocal(function(err, updatedConfigJSON){
+          cb(err, self);
+        });
+      } else {
+        cb(err, self);
+      }
+    }
+    self.loadLocal(function(err, localConfig){
+      if(err) $fh.forms.log.e("Config loadLocal ", err);
+
+      dataAgent.remoteStore.read(self, _handler);
+    });
   };
   Config.prototype.staticConfig = function(config) {
+    var self = this;
+    var defaultConfig = {"defaultConfigValues": {}, "userConfigValues": {}};
+    //If user already has set values, don't want to overwrite them
+    if(self.get("userConfigValues")){
+      defaultConfig.userConfigValues = self.get("userConfigValues");
+    }
     var appid = $fh && $fh.app_props ? $fh.app_props.appid : config.appid;
     var mode = $fh && $fh.app_props ? $fh.app_props.mode : 'dev';
-    this.set('appId', appid);
-    this.set('env', mode);
-    this.set('timeoutTime', 30000);
-    var self = this;
+    self.set('appId', appid);
+    self.set('env', mode);
+
+
     if ($fh && 'function' === typeof $fh.env) {
       $fh.env(function(env) {
         self.set('deviceId', env.uuid);
       });
     }
-    this._initMBaaS();
+    self._initMBaaS();
     //Setting default retry attempts if not set in the config
-    if (config === undefined) {
+    if (!config) {
       config = {};
     }
-    if (typeof config.submissionRetryAttempts === 'undefined') {
-      config.submissionRetryAttempts = 2;
+
+    //config_admin_user can not be set by the user.
+    if(config.config_admin_user){
+      delete config.config_admin_user;
     }
 
-    if (config.submissionTimeout == null) {
-      config.submissionTimeout = 20; //Default 20 seconds timeout
-    }
-    this.fromJSON(config);
-    this.fromJSON({
+    defaultConfig.defaultConfigValues = config;
+    var staticConfig = {
       "sent_save_min": 5,
       "sent_save_max": 1000,
-      "targetWidth": 100,
-      "targetHeight": 100,
-      "quality": 75,
+      "targetWidth": 640,
+      "targetHeight": 480,
+      "quality": 50,
       "debug_mode": false,
       "logger": false,
-      "max_retries": 0,
-      "timeout": 30,
-      "log_line_limit": 300,
-      "log_email": "logs.enterpriseplc@feedhenry.com",
-      "log_level": 2,
+      "max_retries": 3,
+      "timeout": 7,
+      "log_line_limit": 5000,
+      "log_email": "test@example.com",
+      "log_level": 3,
       "log_levels": ["error", "warning", "log", "debug"],
       "config_admin_user": true
-    });
+    };
+
+    for(var key in staticConfig){
+      defaultConfig.defaultConfigValues[key] = staticConfig[key];
+    }
+
+    self.fromJSON(defaultConfig);
   };
   Config.prototype._initMBaaS = function() {
     var cloud_props = $fh.cloud_props;
@@ -1360,7 +1330,9 @@ appForm.models = function(module) {
     if (cloud_props && cloud_props.hosts) {
       if (mode.indexOf('dev') > -1) {
         //dev mode
-        cloudUrl = cloud_props.hosts.debugCloudUrl;
+        if(cloud_props.hosts.debugCloudUrl){
+          cloudUrl = cloud_props.hosts.debugCloudUrl;
+        }
       } else {
         //live mode
         cloudUrl = cloud_props.hosts.releaseCloudUrl;
@@ -1379,24 +1351,13 @@ appForm.models = function(module) {
       'base64fileSubmission': '/forms/:appId/:submissionId/:fieldId/:hashName/submitFormFileBase64',
       'submissionStatus': '/forms/:appId/:submissionId/status',
       'completeSubmission': '/forms/:appId/:submissionId/completeSubmission',
-      "config": '/forms/:appid/config'
+      "config": '/forms/:appid/config/:deviceId'
     });
   };
-  Config.prototype.saveLocal = function(cb){
-    if(this.get("config_admin_user") === true){
-      Model.prototype.saveLocal.call(this, cb);
-    } else {
-      cb("Must be an admin user to change client settings.");
-    }
-  };
-  Config.prototype.set = function(key, value){
-    if(this.get("config_admin_user") === true){
-      Model.prototype.set.call(this, key, value);
-    }
-  };
+
   module.config = new Config();
   return module;
-}(appForm || {});
+}(appForm.models || {});
 appForm.models = function (module) {
   var Model = appForm.models.Model;
   function Forms() {
@@ -1407,13 +1368,7 @@ appForm.models = function (module) {
     });
   }
   appForm.utils.extend(Forms, Model);
-  /**
-     * remove all local forms stored.
-     * @param  {Function} cb [description]
-     * @return {[type]}      [description]
-     */
-  Forms.prototype.clearAllForms = function (cb) {
-  };
+
   Forms.prototype.isFormUpdated = function (formModel) {
     var id = formModel.get('_id');
     var formLastUpdate = formModel.getLastUpdate();
@@ -1425,7 +1380,11 @@ appForm.models = function (module) {
       return false;
     }
   };
+  Forms.prototype.setLocalId = function(){
+    $fh.forms.log.e("Forms setLocalId. Not Permitted for Forms.");
+  };
   Forms.prototype.getFormMetaById = function (formId) {
+    $fh.forms.log.d("Forms getFormMetaById ", formId);
     var forms = this.get('forms');
     for (var i = 0; i < forms.length; i++) {
       var form = forms[i];
@@ -1433,18 +1392,17 @@ appForm.models = function (module) {
         return form;
       }
     }
+    $fh.forms.log.e("Forms getFormMetaById: No form found for id: ", formId);
     return null;
   };
   Forms.prototype.size = function () {
     return this.get('forms').length;
   };
-  Forms.prototype.setLocalId = function () {
-    throw 'forms id cannot be set programmly';
-  };
   Forms.prototype.getFormsList = function () {
     return this.get('forms');
   };
   Forms.prototype.getFormIdByIndex = function (index) {
+    $fh.forms.log.d("Forms getFormIdByIndex: ", index);
     return this.getFormsList()[index]._id;
   };
   module.forms = new Forms();
@@ -1461,13 +1419,12 @@ appForm.models = function (module) {
      * @param {Function} cb         [description]
      */
   function Form(params, cb) {
-    //console.log(params, cb);
     var that = this;
     var rawMode = params.rawMode || false;
     var rawData = params.rawData || null;
     var formId = params.formId;
     var fromRemote = params.fromRemote;
-
+    $fh.forms.log.d("Form: ", rawMode, rawData, formId, fromRemote);
 
     if (typeof fromRemote == 'function' || typeof cb == 'function') {
       if (typeof fromRemote == 'function') {
@@ -1475,7 +1432,7 @@ appForm.models = function (module) {
         fromRemote = false;
       }
     } else {
-      console.error('a callback function is required for initialising form data. new Form (formId, [isFromRemote], cb)');
+      return $fh.forms.log.e('a callback function is required for initialising form data. new Form (formId, [isFromRemote], cb)');
     }
 
     if (!formId) {
@@ -1487,50 +1444,74 @@ appForm.models = function (module) {
       '_type': 'form'
     });
 
-    function checkForUpdate(form){
-      form.refresh(false, function (err, obj) {
-        if (appForm.models.forms.isFormUpdated(form)) {
-          form.refresh(true, function (err, obj1) {
-            if(err){
-              return cb(err, null);
-            }
-            form.initialise();
 
-            _forms[formId] = obj1;
-            return cb(err, obj1);
-          });
-        } else {
-          form.initialise();
-          _forms[formId] = obj;
-          cb(err, obj);
-        }
-      });
-    }
-
-    if (rawMode === false && _forms[formId]) {
-      //found form object in mem return it.
-      if(!appForm.models.forms.isFormUpdated(_forms[formId])){
+    function loadFromLocal(){
+      $fh.forms.log.d("Form: loadFromLocal ", rawMode, rawData, formId, fromRemote);
+      if (_forms[formId]) {
+        //found form object in mem return it.
         cb(null, _forms[formId]);
         return _forms[formId];
       }
+
+      function processRawFormJSON(){
+        that.fromJSON(rawData);
+        that.initialise();
+
+        _forms[that.getFormId()] = that;
+        return cb(null, that);
+      }
+
+      if(rawData){
+        return processRawFormJSON();
+      }
     }
 
-    function processRawFormJSON(){
-      that.fromJSON(rawData);
-      that.initialise();
 
-      _forms[formId] = that;
-      return cb(null, that);
-    }
+    function loadFromRemote(){
+      $fh.forms.log.d("Form: loadFromRemote", rawMode, rawData, formId, fromRemote);
+      function checkForUpdate(form){
+        $fh.forms.log.d("Form: checkForUpdate", rawMode, rawData, formId, fromRemote);
+        form.refresh(false, function (err, obj) {
+          if (appForm.models.forms.isFormUpdated(form)) {
+            form.refresh(true, function (err, obj1) {
+              if(err){
+                return cb(err, null);
+              }
+              form.initialise();
 
-    if (rawMode === true) {
-      processRawFormJSON();
-    } else {
+              _forms[formId] = obj1;
+              return cb(err, obj1);
+            });
+          } else {
+            form.initialise();
+            _forms[formId] = obj;
+            cb(err, obj);
+          }
+        });
+      }
+
+      if (_forms[formId]) {
+        $fh.forms.log.d("Form: loaded from cache", rawMode, rawData, formId, fromRemote);
+        //found form object in mem return it.
+        if(!appForm.models.forms.isFormUpdated(_forms[formId])){
+          cb(null, _forms[formId]);
+          return _forms[formId];
+        }
+      }
+
       checkForUpdate(that);
+    }
+
+    //Raw mode is for avoiding interaction with the mbaas
+    if(rawMode === true){
+      loadFromLocal();
+    } else {
+      loadFromRemote();
     }
   }
   appForm.utils.extend(Form, Model);
   Form.prototype.getLastUpdate = function () {
+    $fh.forms.log.d("Form: getLastUpdate");
     return this.get('lastUpdatedTimestamp');
   };
   /**
@@ -1543,9 +1524,9 @@ appForm.models = function (module) {
     this.initialiseRules();
   };
   Form.prototype.initialiseFields = function () {
+    $fh.forms.log.d("Form: initialiseFields");
     var fieldsRef = this.getFieldRef();
     this.fields = {};
-    console.log('field Ref', fieldsRef);
     for (var fieldId in fieldsRef) {
       var fieldRef = fieldsRef[fieldId];
       var pageIndex = fieldRef.page;
@@ -1562,6 +1543,7 @@ appForm.models = function (module) {
     }
   };
   Form.prototype.initialiseRules = function () {
+    $fh.forms.log.d("Form: initialiseRules");
     this.rules = {};
     var pageRules = this.getPageRules();
     var fieldRules = this.getFieldRules();
@@ -1582,10 +1564,8 @@ appForm.models = function (module) {
     }
     for (i = 0; i<constructors.length ; i++) {
       var constructor = constructors[i];
-      console.log("constructor", constructor);
       var ruleObj = new appForm.models.Rule(constructor);
       var fieldIds = ruleObj.getRelatedFieldId();
-      console.log("fieldIds", fieldIds);
       for (var j = 0; j<fieldIds.length; j++) {
         var  fieldId = fieldIds[j];
         if (!this.rules[fieldId]) {
@@ -1596,9 +1576,11 @@ appForm.models = function (module) {
     }
   };
   Form.prototype.getRulesByFieldId = function (fieldId) {
+    $fh.forms.log.d("Form: getRulesByFieldId");
     return this.rules[fieldId];
   };
   Form.prototype.initialisePage = function () {
+    $fh.forms.log.d("Form: initialisePage");
     var pages = this.getPagesDef();
     this.pages = [];
     for (var i = 0; i < pages.length; i++) {
@@ -1635,6 +1617,7 @@ appForm.models = function (module) {
     return this.fields[fieldId];
   };
   Form.prototype.getFieldDefByIndex = function (pageIndex, fieldIndex) {
+    $fh.forms.log.d("Form: getFieldDefByIndex: ", pageIndex, fieldIndex);
     var pages = this.getPagesDef();
     var page = pages[pageIndex];
     if (page) {
@@ -1644,9 +1627,11 @@ appForm.models = function (module) {
         return field;
       }
     }
+    $fh.forms.log.e("Form: getFieldDefByIndex: No field found for page and field index: ", pageIndex, fieldIndex);
     return null;
   };
   Form.prototype.getPageModelById = function (pageId) {
+    $fh.forms.log.d("Form: getPageModelById: ", pageId);
     var index = this.getPageRef()[pageId];
     if (typeof index == 'undefined') {
       throw 'page id is not found';
@@ -1655,17 +1640,20 @@ appForm.models = function (module) {
     }
   };
   Form.prototype.newSubmission = function () {
+    $fh.forms.log.d("Form: newSubmission");
     return appForm.models.submission.newInstance(this);
   };
   Form.prototype.getFormId = function () {
     return this.get('_id');
   };
   Form.prototype.removeFromCache = function () {
+    $fh.forms.log.d("Form: removeFromCache");
     if (_forms[this.getFormId()]) {
       delete _forms[this.getFormId()];
     }
   };
   Form.prototype.getFileFieldsId = function () {
+    $fh.forms.log.d("Form: getFileFieldsId");
     var fieldsId = [];
     for (var fieldId in this.fields) {
       var field = this.fields[fieldId];
@@ -1675,31 +1663,14 @@ appForm.models = function (module) {
     }
     return fieldsId;
   };
-  // Form.prototype.getImageFieldsId=function(){
-  //     var fieldsId=[]
-  //     for (var fieldId in this.fields){
-  //         var field=this.fields[fieldId];
-  //         if (field.getType()=="photo" || field.getType()=="signature"  ){
-  //             fieldsId.push(fieldId);
-  //         }
-  //     }
-  //     return fieldsId;
-  // }
+
   Form.prototype.getRuleEngine = function () {
+    $fh.forms.log.d("Form: getRuleEngine");
     if (this.rulesEngine) {
       return this.rulesEngine;
     } else {
       var formDefinition = this.getProps();
       this.rulesEngine = new appForm.RulesEngine(formDefinition);
-      // //DEBUG ONLY  BY PASS VALIDATE FORM
-      // this.rulesEngine.validateForm=function(a,cb){
-      //     cb(null,{
-      //         validation:{
-      //             valid:true    
-      //         }
-      //     });
-      // }
-      // //END OF DEBUG
       return this.rulesEngine;
     }
   };
@@ -1709,6 +1680,7 @@ appForm.models = function (module) {
   var Model = appForm.models.Model;
   module.FileSubmission = FileSubmission;
   function FileSubmission(fileData) {
+    $fh.forms.log.d("FileSubmission ", fileData);
     Model.call(this, {
       '_type': 'fileSubmission',
       'data': fileData
@@ -1716,13 +1688,15 @@ appForm.models = function (module) {
   }
   appForm.utils.extend(FileSubmission, Model);
   FileSubmission.prototype.loadFile = function (cb) {
+    $fh.forms.log.d("FileSubmission loadFile");
     var fileName = this.getHashName();
     var that = this;
     appForm.utils.fileSystem.readAsFile(fileName, function (err, file) {
       if (err) {
-        console.error(err);
+        $fh.forms.log.e("FileSubmission loadFile. Error reading file", fileName, err);
         cb(err);
       } else {
+        $fh.forms.log.d("FileSubmission loadFile. File read correctly", fileName, file);
         that.fileObj = file;
         cb(null);
       }
@@ -1732,6 +1706,7 @@ appForm.models = function (module) {
     return this.fileObj;
   };
   FileSubmission.prototype.setSubmissionId = function (submissionId) {
+    $fh.forms.log.d("FileSubmission setSubmissionId.", submissionId);
     this.set('submissionId', submissionId);
   };
   FileSubmission.prototype.getSubmissionId = function () {
@@ -1759,6 +1734,11 @@ appForm.models = function (module) {
     return this.get('data');
   };
   FormSubmission.prototype.getFormId = function () {
+    if(!this.get('data')){
+      console.log(this);
+      console.trace();
+    }
+
     return this.get('data').formId;
   };
   return module;
@@ -1810,7 +1790,7 @@ appForm.models = function (module) {
   }
   appForm.utils.extend(Submissions, Model);
   Submissions.prototype.setLocalId = function () {
-    throw 'It is not allowed to set local id programmly for submissions model.';
+    $fh.forms.log.e("Submissions setLocalId. Not Permitted for submissions.");
   };
   /**
      * save a submission to list and store it immediately
@@ -1819,14 +1799,15 @@ appForm.models = function (module) {
      * @return {[type]}              [description]
      */
   Submissions.prototype.saveSubmission = function (submission, cb) {
+    $fh.forms.log.d("Submissions saveSubmission");
     var self=this;
     this.updateSubmissionWithoutSaving(submission);
     this.clearSentSubmission(function(){
       self.saveLocal(cb);  
     });
-    
   };
   Submissions.prototype.updateSubmissionWithoutSaving = function (submission) {
+    $fh.forms.log.d("Submissions updateSubmissionWithoutSaving");
     var pruneData = this.pruneSubmission(submission);
     var localId = pruneData._ludid;
     if (localId) {
@@ -1842,16 +1823,19 @@ appForm.models = function (module) {
       }
     } else {
       // invalid local id.
-      console.error('Invalid submission:' + JSON.stringify(submission));
+      $fh.forms.log.e('Invalid submission for localId:', localId, JSON.stringify(submission));
     }
   };
   Submissions.prototype.clearSentSubmission=function(cb){
+    $fh.forms.log.d("Submissions clearSentSubmission");
     var self=this;
-    var maxSent=$fh.forms.config.get("sent_save_max");
+    var maxSent= $fh.forms.config.get("max_sent_saved") ? $fh.forms.config.get("max_sent_saved") : $fh.forms.config.get("sent_save_min");
     var submissions=this.get("submissions");
     var sentSubmissions=this.getSubmitted();
-    // var maxSent=1;
+
+
     if (sentSubmissions.length>maxSent){
+      $fh.forms.log.d("Submissions clearSentSubmission pruning sentSubmissions.length>maxSent");
       sentSubmissions=sentSubmissions.sort(function(a,b){
         if (a.submittedDate<b.submittedDate){
           return -1;
@@ -1869,7 +1853,7 @@ appForm.models = function (module) {
         self.getSubmissionByMeta(subMeta,function(err,submission){
           submission.clearLocal(function(err){
             if (err){
-              console.error(err);
+              $fh.forms.log.e("Submissions clearSentSubmission submission clearLocal", err);
             }
             count--;
             if (count===0){
@@ -1883,6 +1867,7 @@ appForm.models = function (module) {
     }
   };
   Submissions.prototype.findByFormId = function (formId) {
+    $fh.forms.log.d("Submissions findByFormId", formId);
     var rtn = [];
     var submissions = this.get('submissions');
     for (var i = 0; i < submissions.length; i++) {
@@ -1899,6 +1884,7 @@ appForm.models = function (module) {
   Submissions.prototype.getSubmissionMetaList = Submissions.prototype.getSubmissions;
   //function alias
   Submissions.prototype.findMetaByLocalId = function (localId) {
+    $fh.forms.log.d("Submissions findMetaByLocalId", localId);
     var submissions = this.get('submissions');
     for (var i = 0; i < submissions.length; i++) {
       var obj = submissions[i];
@@ -1906,9 +1892,12 @@ appForm.models = function (module) {
         return obj;
       }
     }
+
+    $fh.forms.log.e("Submissions findMetaByLocalId: No submissions for localId: ", localId);
     return null;
   };
   Submissions.prototype.pruneSubmission = function (submission) {
+    $fh.forms.log.d("Submissions pruneSubmission");
     var fields = [
         '_id',
         '_ludid',
@@ -1931,109 +1920,109 @@ appForm.models = function (module) {
     }
     return rtn;
   };
+
+  Submissions.prototype.clear = function(cb) {
+    $fh.forms.log.d("Submissions clear");
+    var that = this;
+    this.clearLocal(function(err) {
+        if (err) {
+            console.error(err);
+            cb(err);
+        } else {
+            that.set("submissions", []);
+            cb(null, null);
+        }
+    });
+  };
+  Submissions.prototype.getDrafts = function(params) {
+    $fh.forms.log.d("Submissions getDrafts: ", params);
+    if(!params){
+      params = {};
+    }
+    params.status = "draft";
+    return this.findByStatus(params);
+  };
+  Submissions.prototype.getPending = function(params) {
+    $fh.forms.log.d("Submissions getPending: ", params);
+    if(!params){
+      params = {};
+    }
+    params.status = "pending";
+    return this.findByStatus(params);
+  };
+  Submissions.prototype.getSubmitted = function(params) {
+    $fh.forms.log.d("Submissions getSubmitted: ", params);
+    if(!params){
+      params = {};
+    }
+    params.status = "submitted";
+    return this.findByStatus(params);
+  };
+  Submissions.prototype.getError = function(params) {
+    $fh.forms.log.d("Submissions getError: ", params);
+    if(!params){
+      params = {};
+    }
+    params.status = "error";
+    return this.findByStatus(params);
+  };
+  Submissions.prototype.getInProgress = function(params) {
+    $fh.forms.log.d("Submissions getInProgress: ", params);
+    if(!params){
+      params = {};
+    }
+    params.status = "inprogress";
+    return this.findByStatus(params);
+  };
+  Submissions.prototype.findByStatus = function(params) {
+    $fh.forms.log.d("Submissions findByStatus: ", params);
+    if(!params){
+      params = {};
+    }
+    if (typeof params =="string"){
+      params={status:params};
+    }
+    if(params.status == null){
+      return [];
+    }
+
+    var status = params.status;
+    var formId = params.formId;
+
+    var submissions = this.get("submissions");
+    var rtn = [];
+    for (var i = 0; i < submissions.length; i++) {
+        if (submissions[i].status == status) {
+          if(formId != null){
+            if(submissions[i].formId == formId){
+              rtn.push(submissions[i]);
+            }
+          } else {
+            rtn.push(submissions[i]);
+          }
+
+        }
+    }
+    return rtn;
+  };
   /**
-     * Validate current submission before submit
-     * 1. Input Value
-     * 2. Field
-     * 3. Rules
-     * @return {[type]} [description]
-     * @deprecated replaced by rule engine
-     */
-    Submissions.prototype.validateBeforeSubmission = function() {
-        return true;
-    };
-    Submissions.prototype.clear = function(cb) {
-        var that = this;
-        this.clearLocal(function(err) {
-            if (err) {
-                console.error(err);
-                cb(err);
-            } else {
-                that.set("submissions", []);
-                cb(null, null);
-            }
-        });
-    };
-    Submissions.prototype.getDrafts = function(params) {
-        if(!params){
-          params = {};
-        }
-        params.status = "draft";
-        return this.findByStatus(params);
-    };
-    Submissions.prototype.getPending = function(params) {
-        if(!params){
-          params = {};
-        }
-        params.status = "pending";
-        return this.findByStatus(params);
-    };
-    Submissions.prototype.getSubmitted = function(params) {
-        if(!params){
-          params = {};
-        }
-        params.status = "submitted";
-        return this.findByStatus(params);
-    };
-    Submissions.prototype.getError = function(params) {
-        if(!params){
-          params = {};
-        }
-        params.status = "error";
-        return this.findByStatus(params);
-    };
-    Submissions.prototype.getInProgress = function(params) {
-        if(!params){
-          params = {};
-        }
-        params.status = "inprogress";
-        return this.findByStatus(params);
-    };
-    Submissions.prototype.findByStatus = function(params) {
-        if(!params){
-          params = {};
-        }
-        if (typeof params =="string"){
-          params={status:params};
-        }
-        if(params.status == null){
-          return [];
-        }
-
-        var status = params.status;
-        var formId = params.formId;
-
-        var submissions = this.get("submissions");
-        var rtn = [];
-        for (var i = 0; i < submissions.length; i++) {
-            if (submissions[i].status == status) {
-              if(formId != null){
-                if(submissions[i].formId == formId){
-                  rtn.push(submissions[i]);
-                }
-              } else {
-                rtn.push(submissions[i]);
-              }
-
-            }
-        }
-        return rtn;
-    };
-    /**
-     * return a submission model object by the meta data passed in.
-     * @param  {[type]}   meta [description]
-     * @param  {Function} cb   [description]
-     * @return {[type]}        [description]
-     */
+   * return a submission model object by the meta data passed in.
+   * @param  {[type]}   meta [description]
+   * @param  {Function} cb   [description]
+   * @return {[type]}        [description]
+   */
   Submissions.prototype.getSubmissionByMeta = function (meta, cb) {
+    $fh.forms.log.d("Submissions getSubmissionByMeta: ", meta);
     var localId = meta._ludid;
     if (localId) {
       appForm.models.submission.fromLocal(localId, cb);
     } else {
-      throw 'local id not found for retrieving submission.';
+      $fh.forms.log.e("Submissions getSubmissionByMeta: local id not found for retrieving submission.", localId, meta);
+      cb("local id not found for retrieving submission");
     }
   };
   Submissions.prototype.removeSubmission = function (localId, cb) {
+    $fh.forms.log.d("Submissions removeSubmission: ", localId);
     var index = this.indexOf(localId);
     if (index > -1) {
       this.get('submissions').splice(index, 1);
@@ -2041,6 +2030,7 @@ appForm.models = function (module) {
     this.saveLocal(cb);
   };
   Submissions.prototype.indexOf = function (localId, cb) {
+    $fh.forms.log.d("Submissions indexOf: ", localId);
     var submissions = this.get('submissions');
     for (var i = 0; i < submissions.length; i++) {
       var obj = submissions[i];
@@ -2092,21 +2082,28 @@ appForm.models = function(module) {
   }
 
   function fromLocal(localId, cb) {
+    $fh.forms.log.d("Submission fromLocal: ", localId);
     if (_submissions[localId]) {
+      $fh.forms.log.d("Submission fromLocal from cache: ", localId);
       //already loaded
       cb(null, _submissions[localId]);
     } else {
       //load from storage
+      $fh.forms.log.d("Submission fromLocal not in cache. Loading from local storage.: ", localId);
       var obj = new Submission();
       obj.setLocalId(localId);
       obj.loadLocal(function(err, submission) {
         if (err) {
+          $fh.forms.log.e("Submission fromLocal. Error loading from local: ", localId, err);
           cb(err);
         } else {
+          $fh.forms.log.d("Submission fromLocal. Load from local sucessfull: ", localId);
           submission.reloadForm(function(err, res) {
             if (err) {
+              $fh.forms.log.e("Submission fromLocal. reloadForm. Error re-loading form: ", localId, err);
               cb(err);
             } else {
+              $fh.forms.log.d("Submission fromLocal. reloadForm. Re-loading form successfull: ", localId);
               _submissions[localId] = submission;
               cb(null, submission);
             }
@@ -2117,6 +2114,7 @@ appForm.models = function(module) {
   }
 
   function Submission(form) {
+    $fh.forms.log.d("Submission: ");
     Model.call(this, {
       '_type': 'submission'
     });
@@ -2132,7 +2130,7 @@ appForm.models = function(module) {
     this.set('appId', appForm.config.get('appId'));
     this.set('appEnvironment', appForm.config.get('env'));
     this.set('appCloudName', '');
-    //TODO check with eng
+
     this.set('comments', []);
     this.set('formFields', []);
     this.set('saveDate', null);
@@ -2141,7 +2139,7 @@ appForm.models = function(module) {
     this.set('submittedDate', null);
     this.set('userId', null);
     this.set('filesInSubmission', {});
-    this.set('deviceId', appForm.models.config.get('deviceId'));
+    this.set('deviceId', appForm.config.get('deviceId'));
     this.transactionMode = false;
     this.genLocalId();
     var localId = this.getLocalId();
@@ -2153,6 +2151,7 @@ appForm.models = function(module) {
    * @return {[type]} [description]
    */
   Submission.prototype.saveDraft = function(cb) {
+    $fh.forms.log.d("Submission saveDraft: ");
     var targetStatus = 'draft';
     var that = this;
     this.set('timezoneOffset', appForm.utils.getTime(true));
@@ -2167,6 +2166,7 @@ appForm.models = function(module) {
     });
   };
   Submission.prototype.validateField = function(fieldId, cb) {
+    $fh.forms.log.d("Submission validateField: ", fieldId);
     var that = this;
     this.getForm(function(err, form) {
       if (err) {
@@ -2179,6 +2179,7 @@ appForm.models = function(module) {
     });
   };
   Submission.prototype.checkRules = function(cb) {
+    $fh.forms.log.d("Submission checkRules: ");
     var self = this;
     this.getForm(function(err, form) {
       if (err) {
@@ -2196,19 +2197,24 @@ appForm.models = function(module) {
    * @return {[type]}      [description]
    */
   Submission.prototype.submit = function(cb) {
+    $fh.forms.log.d("Submission submit: ");
     var targetStatus = 'pending';
     var validateResult = true;
     var that = this;
     this.set('timezoneOffset', appForm.utils.getTime(true));
     this.getForm(function(err, form) {
+      if(err) $fh.forms.log.e("Submission submit: Error getting form ", err);
       var ruleEngine = form.getRuleEngine();
       var submission = that.getProps();
       ruleEngine.validateForm(submission, function(err, res) {
         if (err) {
+          $fh.forms.log.e("Submission submit validateForm: Error validating form ", err);
           cb(err);
         } else {
+          $fh.forms.log.d("Submission submit: validateForm. Completed result", res);
           var validation = res.validation;
           if (validation.valid) {
+            $fh.forms.log.d("Submission submit: validateForm. Completed Form Valid", res);
             that.set('submitDate', new Date());
             that.changeStatus(targetStatus, function(error) {
               if (error) {
@@ -2219,6 +2225,7 @@ appForm.models = function(module) {
               }
             });
           } else {
+            $fh.forms.log.d("Submission submit: validateForm. Completed Validation error", res);
             cb('Validation error');
             that.emit('validationerror', validation);
           }
@@ -2389,6 +2396,12 @@ appForm.models = function(module) {
     var that = this;
     var fieldId = params.fieldId;
     var inputValue = params.value;
+
+
+    if(params.value == null){
+      return cb();
+    }
+
     var index = params.index === undefined ? -1 : params.index;
     this.getForm(function(err, form) {
       var fieldModel = form.getFieldModelById(fieldId);
@@ -2521,7 +2534,8 @@ appForm.models = function(module) {
     var Form = appForm.models.Form;
     var formId = this.get('formId');
     new Form({
-      'formId': formId
+      'formId': formId,
+      'rawMode': true
     }, cb);
   };
   Submission.prototype.reloadForm = function(cb) {
@@ -2529,7 +2543,8 @@ appForm.models = function(module) {
     var formId = this.get('formId');
     var self = this;
     new Form({
-      formId: formId
+      formId: formId,
+      'rawMode': true
     }, function(err, form) {
       if (err) {
         cb(err);
@@ -2550,14 +2565,7 @@ appForm.models = function(module) {
     var fileFieldIds = this.form.getFileFieldsId();
     return this.getInputValueArray(fileFieldIds);
   };
-  // /**
-  //  * Retrieve all image fields related value
-  //  * @return {[type]} [description]
-  //  */
-  // Submission.prototype.getImageInputValues = function() {
-  //     var imageFieldIds = this.form.getImageFieldsId();
-  //     return this.getInputValueArray(imageFieldIds);
-  // }
+
   Submission.prototype.getInputValueArray = function(fieldIds) {
     var rtn = [];
     for (var i = 0; i< fieldIds.length; i++) {
@@ -2575,6 +2583,7 @@ appForm.models = function(module) {
   };
   Submission.prototype.clearLocal = function(cb) {
     var self = this;
+    var localId = self.getLocalId();
     //remove from uploading list
     appForm.models.uploadManager.cancelSubmission(self, function(err, uploadTask) {
       if (err) {
@@ -2584,7 +2593,7 @@ appForm.models = function(module) {
       //remove from submission list
       appForm.models.submissions.removeSubmission(self.getLocalId(), function(err) {
         if (err) {
-          console.err(err);
+          console.error(err);
           return cb(err);
         }
         self.clearLocalSubmissionFiles(function() {
@@ -2592,6 +2601,10 @@ appForm.models = function(module) {
             if (err) {
               console.error(err);
               return cb(err);
+            }
+
+            if(_submissions[localId]){
+              delete _submissions[localId];
             }
             cb(null, null);
           });
@@ -2650,9 +2663,9 @@ appForm.models = function (module) {
     };
 
     var fieldDef = this.getFieldDefinition();
-    photoOptions.targetWidth = fieldDef.photoHeight || appForm.config.photoHeight || 200;
-    photoOptions.targetHeight = fieldDef.photoHeight || appForm.config.photoHeight || 200;
-    photoOptions.quality = fieldDef.photoQuality || appForm.config.photoQuality || 50;
+    photoOptions.targetWidth = fieldDef.photoWidth;
+    photoOptions.targetHeight = fieldDef.photoHeight;
+    photoOptions.quality = fieldDef.photoQuality;
     return photoOptions;
   };
   Field.prototype.isRepeating = function () {
@@ -2717,7 +2730,11 @@ appForm.models = function (module) {
      * @return true / error message
      */
   Field.prototype.validate = function (inputValue, cb) {
-    this.form.getRuleEngine().validateFieldValue(this.getFieldId(), inputValue, cb);
+    var self = this;
+    self.processInput({"value": inputValue, "isStore": false}, function(err, convertedInputValue){
+      if(err) console.error(err);
+      self.form.getRuleEngine().validateFieldValue(self.getFieldId(), convertedInputValue, cb);
+    });
   };
   /**
      * return rule array attached to this field.
@@ -2838,7 +2855,7 @@ appForm.models.Field = function (module) {
     var def = this.getFieldDefinition();
     var obj={};
     switch (def.locationUnit) {
-    case 'latLong':
+    case 'latlong':
       if (!inputValue.lat || !inputValue["long"]) {
         cb('the input values for latlong field is {lat: number, long: number}');
       } else {
@@ -2849,7 +2866,7 @@ appForm.models.Field = function (module) {
         cb(null, obj);
       }
       break;
-    case 'northEast':
+    case 'northeast':
       if (!inputValue.zone || !inputValue.eastings || !inputValue.northings) {
         cb('the input values for northeast field is {zone: text, eastings: text, northings:text}');
       } else {
@@ -3104,69 +3121,7 @@ appForm.models = function (module) {
 
     return module;
 }(appForm.models || {});
-// /**
-//  * Validate field value
-//  * extend this module to add more validations
-//  */
-// appForm.models = function (module) {
-//   var Model = appForm.models.Model;
-//   function FieldValidate() {
-//     Model.call(this, { '_type': 'fieldvalidate' });
-//   }
-//   appForm.utils.extend(FieldValidate, Model);
-//   /**
-//      * Validate input value with field model input constraints  (not definitions)
-//      * @param  {[type]} fieldModel [description]
-//      * @return {[type]}            [description]
-//      */
-//   FieldValidate.prototype.validate = function (inputValue, fieldModel) {
-//     var isRequired = fieldModel.isRequired();
-//     var validation = fieldModel.getFieldValidation();
-//     for (var act in validation) {
-//       if (!this[act] || typeof this[act] != 'function') {
-//         console.error('Validation method is not found:' + act);
-//       } else {
-//         var res = this[act](inputValue, validation[act]);
-//         if (res === true) {
-//           continue;
-//         } else {
-//           return res;
-//         }
-//       }
-//     }
-//     return true;
-//   };
-//   FieldValidate.prototype.min = function (inputValue, targetVal) {
-//     if (inputValue >= targetVal) {
-//       return true;
-//     } else {
-//       return 'Min value is ' + targetVal + ' while input value is ' + inputValue;
-//     }
-//   };
-//   FieldValidate.prototype.max = function (inputValue, targetVal) {
-//     if (inputValue <= targetVal) {
-//       return true;
-//     } else {
-//       return 'Max value is ' + targetVal + ' while input value is ' + inputValue;
-//     }
-//   };
-//   FieldValidate.prototype.minSelected = function (inputValue, targetVal) {
-//     if (typeof inputValue == 'array' && inputValue.length >= targetVal) {
-//       return true;
-//     } else {
-//       return 'Min selected number is ' + targetVal;
-//     }
-//   };
-//   FieldValidate.prototype.maxSelected = function (inputValue, targetVal) {
-//     if (typeof inputValue == 'array' && inputValue.length <= targetVal) {
-//       return true;
-//     } else {
-//       return 'Max selected number is ' + targetVal;
-//     }
-//   };
-//   module.fieldValidate = new FieldValidate();
-//   return module;
-// }(appForm.models || {});
+
 /**
  * Manages submission uploading tasks
  */
@@ -3178,7 +3133,6 @@ appForm.models = function (module) {
       '_ludid': 'uploadManager_queue'
     });
     this.set('taskQueue', []);
-    this.timeOut = appForm.config.get("timeout");
     this.sending = false;
     this.timerInterval = 200;
     this.sendingStart = appForm.utils.getTime();
@@ -3255,25 +3209,7 @@ appForm.models = function (module) {
       cb(null, null);
     }
   };
-  // /**
-  //  * Queue all pending submission
-  //  * @param  {Function} cb [description]
-  //  * @return {[type]}      [description]
-  //  */
-  // UploadManager.prototype.queueAllPending=function(cb){
-  //     var submissionsModel=appForm.models.submissions;
-  //     var submissionMetaList=submissionsModel.getPending();
-  //     var self=this;
-  //     for (var i=0,subMeta;subMeta=submissionMetaList[i];i++){
-  //         submissionsModel.getSubmissionByMeta(subMeta,function(err,submission){
-  //             if(err){
-  //                 console.error(err);
-  //             }else{
-  //                 self.queueSubmission(submission)
-  //             }
-  //         });
-  //     }
-  // }
+
   UploadManager.prototype.getTaskQueue = function () {
     return this.get('taskQueue', []);
   };
@@ -3321,7 +3257,7 @@ appForm.models = function (module) {
     if (this.sending) {
       var now = appForm.utils.getTime();
       var timePassed = now.getTime() - this.sendingStart.getTime();
-      if (timePassed > this.timeOut * 1000) {
+      if (timePassed > $fh.forms.config.get("timeout") * 1000) {
         //time expired. roll current task to the end of queue
         console.error('Uploading content timeout. it will try to reupload.');
         this.sending = false;
@@ -3797,7 +3733,7 @@ appForm.models = function (module) {
         console.error('Err, retrying:', err);
         //If the upload has encountered an error -- flag the submission as needing a retry on the next tick -- User should be insulated from an error until the retries are finished.
         that.increRetryAttempts();
-        if (that.getRetryAttempts() <= appForm.config.get('max_retries')) {
+        if (that.getRetryAttempts() <= $fh.forms.config.get('max_retries')) {
           that.setRetryNeeded(true);
           that.saveLocal(function (err) {
             if (err)
@@ -3887,14 +3823,14 @@ appForm.models = function (module) {
    */
   UploadTask.prototype.success = function (cb) {
     var that = this;
-    this.set('completed', true);
-    this.saveLocal(function (err) {
+    that.set('completed', true);
+    that.saveLocal(function (err) {
       if (err) {
         console.error(err);
         console.error('Upload task save failed');
       }
     });
-    this.submissionModel(function (_err, model) {
+    that.submissionModel(function (_err, model) {
       if (_err) {
         cb(_err);
       } else {
@@ -4049,10 +3985,10 @@ appForm.models = (function(module) {
   appForm.utils.extend(Log, Model);
 
   Log.prototype.info = function(logLevel, msgs) {
-    if (appForm.config.get("logger") == "true") {
+    if ($fh.forms.config.get("logger") == "true") {
       var levelString = "";
-      var curLevel = appForm.config.get("log_level");
-      var log_levels = appForm.config.get("log_levels");
+      var curLevel = $fh.forms.config.get("log_level");
+      var log_levels = $fh.forms.config.get("log_levels");
       var self = this;
       if (typeof logLevel == "string") {
         levelString = logLevel;
@@ -4071,7 +4007,7 @@ appForm.models = (function(module) {
         args.shift();
         while (args.length > 0) {
           logs.push(self.wrap(args.shift(), levelString));
-          if (logs.length > appForm.config.get("log_line_limit")) {
+          if (logs.length > $fh.forms.config.get("log_line_limit")) {
             logs.shift();
           }
         }
@@ -4103,19 +4039,19 @@ appForm.models = (function(module) {
     var logs = this.getLogs();
     var patterns = [{
       reg: /^.+\sERROR\s.*/,
-      color: appForm.config.get('color_error') || "#FF0000"
+      color: $fh.forms.config.get('color_error') || "#FF0000"
     }, {
       reg: /^.+\sWARNING\s.*/,
-      color: appForm.config.get('color_warning') || "#FF9933"
+      color: $fh.forms.config.get('color_warning') || "#FF9933"
     }, {
       reg: /^.+\sLOG\s.*/,
-      color: appForm.config.get('color_log') || "#009900"
+      color: $fh.forms.config.get('color_log') || "#009900"
     }, {
       reg: /^.+\sDEBUG\s.*/,
-      color: appForm.config.get('color_debug') || "#3366FF"
+      color: $fh.forms.config.get('color_debug') || "#3366FF"
     }, {
       reg: /^.+\sUNKNOWN\s.*/,
-      color: appForm.config.get('color_unknown') || "#000000"
+      color: $fh.forms.config.get('color_unknown') || "#000000"
     }];
     for (var i = 0; i < logs.length; i++) {
       var log = logs[i];
@@ -4169,7 +4105,7 @@ appForm.models = (function(module) {
     });
   };
   Log.prototype.sendLogs = function(cb) {
-    var email = appForm.config.get("log_email");
+    var email = $fh.forms.config.get("log_email");
     var config = appForm.config.getProps();
     var logs = this.getLogs();
     var params = {
@@ -4194,9 +4130,80 @@ appForm.api = function (module) {
   module.submitForm = submitForm;
   module.getSubmissions = getSubmissions;
   module.init = appForm.init;
-  module.config = appForm.models.config;
   module.log=appForm.models.log;
-  var _submissions = null;
+  var formConfig = appForm.models.config;
+  var submissionsLoaded = false;
+
+  /**
+   * Get and set config values. Can only set a config value if you are an config_admin_user
+   */
+  var configInterface = {
+    "editAllowed" : function(){
+      var defaultConfigValues = formConfig.get("defaultConfigValues", {});
+      return defaultConfigValues["config_admin_user"] === true;
+    },
+    "get" : function(key){
+      var self = this;
+      if(key){
+        var userConfigValues = formConfig.get("userConfigValues", {});
+        var defaultConfigValues = formConfig.get("defaultConfigValues", {});
+
+        if(self.editAllowed()){
+          if(userConfigValues[key]){
+            return userConfigValues[key];
+          } else {
+            return defaultConfigValues[key];
+          }
+        } else {
+          return defaultConfigValues[key];
+        }
+      }
+    },
+    "set" : function(key, val){
+      var self = this;
+      if(!key || !val){
+        return;
+      }
+
+      var userConfig = formConfig.get("userConfigValues", {});
+      userConfig[key] = val;
+      formConfig.set("userConfigValues", userConfig);
+    },
+    "getConfig" : function(){
+      var self = this;
+      var defaultValues = formConfig.get("defaultConfigValues", {});
+      var userConfigValues = formConfig.get("userConfigValues", {});
+      var returnObj = {};
+
+      if(self.editAllowed()){
+        for(var defKey in defaultValues){
+          if(userConfigValues[defKey]){
+            returnObj[defKey] = userConfigValues[defKey];
+          } else {
+            returnObj[defKey] = defaultValues[defKey];
+          }
+        }
+        return returnObj;
+      } else {
+        return defaultValues;
+      }
+    },
+    "saveConfig": function(){
+      var self = this;
+      formConfig.saveLocal(function(err, configModel){
+        if(err){
+          $fh.forms.log.e("Error saving a form config: ", err);
+        }else{
+          $fh.forms.log.l("Form config saved sucessfully.");
+        }
+
+      });
+    }
+  };
+
+  module.config = configInterface;
+
+
   /**
      * Retrieve forms model. It contains forms list. check forms model usage
      * @param  {[type]}   params {fromRemote:boolean}
@@ -4250,20 +4257,19 @@ appForm.api = function (module) {
   function getSubmissions(params, cb) {
     //Getting submissions that have been completed.
     var submissions = appForm.models.submissions;
-    if (_submissions == null) {
-      appForm.models.submissions.loadLocal(function (err) {
+
+    if(submissionsLoaded){
+      submissions.loadLocal(function (err) {
         if (err) {
           console.error(err);
           cb(err);
         } else {
-          _submissions = appForm.models.submissions;
-          cb(null, _submissions);
+          submissionsLoaded = true;
+          cb(null, appForm.models.submissions);
         }
       });
     } else {
-      setTimeout(function () {
-        cb(null, _submissions);
-      }, 0);
+      return cb(null, appForm.models.submissions);
     }
   }
   function submitForm(submission, cb) {
@@ -4278,6 +4284,7 @@ appForm.api = function (module) {
       return cb('Invalid submission object.');
     }
   }
+
   return module;
 }(appForm.api || {});
 //mockup $fh apis for Addons.
@@ -4289,9 +4296,9 @@ if ($fh.forms === undefined) {
 }
 appForm.RulesEngine=rulesEngine;
 
-/*! fh-forms - v0.2.23 -  */
+/*! fh-forms - v0.2.40 -  */
 /*! async - v0.2.9 -  */
-/*! 2014-02-10 */
+/*! 2014-02-27 */
 /* This is the prefix file */
 function rulesEngine (formDef) {
   var define = {};
@@ -5328,7 +5335,7 @@ function rulesEngine (formDef) {
     var FIELD_TYPE_DATETIME = "dateTime";
     var FIELD_TYPE_DATETIME_DATETIMEUNIT_DATEONLY = "date";
     var FIELD_TYPE_DATETIME_DATETIMEUNIT_TIMEONLY = "time";
-    var FIELD_TYPE_DATETIME_DATETIMEUNIT_DATETIME = "dateTime";
+    var FIELD_TYPE_DATETIME_DATETIMEUNIT_DATETIME = "datetime";
 
     var formsRulesEngine = function(formDef) {
       var initialised;
@@ -5393,6 +5400,11 @@ function rulesEngine (formDef) {
         async.each(definition.pages, function(page, cbPages) {
           async.each(page.fields, function(field, cbFields) {
             field.pageId = page._id;
+
+            field.fieldOptions = field.fieldOptions ? field.fieldOptions : {};
+            field.fieldOptions.definition = field.fieldOptions.definition ? field.fieldOptions.definition : {};
+            field.fieldOptions.validation = field.fieldOptions.validation ? field.fieldOptions.validation : {};
+
             fieldMap[field._id] = field;
             if (field.required) {
               requiredFieldMap[field._id] = {field: field, submitted: false, validated: false};
@@ -5772,7 +5784,7 @@ function rulesEngine (formDef) {
 
         function checkRepeat(numSubmittedValues, fieldDefinition, cb) {
 
-          if(fieldDefinition.repeating && fieldDefinition.fieldOptions && fieldDefinition.fieldOptions.definition){
+          if(fieldDefinition.repeating && fieldDefinition.fieldOptions.definition){
             if(fieldDefinition.fieldOptions.definition.minRepeat){
               if(numSubmittedValues < fieldDefinition.fieldOptions.definition.minRepeat){
                 return cb(undefined, "Expected min of " + fieldDefinition.fieldOptions.definition.minRepeat + " values for field " + fieldDefinition.name + " but got " + numSubmittedValues);
@@ -5992,7 +6004,7 @@ function rulesEngine (formDef) {
 
         async.eachSeries(fieldDefinition.fieldOptions.definition.options, function(choice, cb){
           for(var choiceName in choice){
-            optionsInCheckbox.push(choiceName);
+            optionsInCheckbox.push(choice[choiceName]);
           }
           return cb();
         }, function(err){
@@ -6168,7 +6180,7 @@ function rulesEngine (formDef) {
           return cb(new Error("Expected string but got " + typeof(fieldValue)));
         }
 
-        switch (fieldDefinition.fieldOptions.definition.dateTimeUnit)
+        switch (fieldDefinition.fieldOptions.definition.datetimeUnit)
         {
           case FIELD_TYPE_DATETIME_DATETIMEUNIT_DATEONLY:
             try{
@@ -6215,7 +6227,7 @@ function rulesEngine (formDef) {
             }
             break;
           default:
-            return cb(new Error("Invalid dateTime fieldtype " + fieldOptions.definition.dateTimeUnit));
+            return cb(new Error("Invalid dateTime fieldtype " + fieldDefinition.fieldOptions.definition.datetimeUnit));
         }
       }
 
@@ -6424,7 +6436,7 @@ function rulesEngine (formDef) {
     function isConditionActive(field, fieldValue, testValue, condition) {
 
       var fieldType = field.type;
-      var fieldOptions = field.fieldOptions;
+      var fieldOptions = field.fieldOptions ? field.fieldOptions : {};
 
       var valid = true;
       if( "is equal to" === condition) {
@@ -6441,7 +6453,7 @@ function rulesEngine (formDef) {
       else if( "is at" === condition) {
         valid = false;
         if( fieldType === FIELD_TYPE_DATETIME ) {
-          switch (fieldOptions.definition.dateTimeUnit)
+          switch (fieldOptions.definition.datetimeUnit)
           {
             case FIELD_TYPE_DATETIME_DATETIMEUNIT_DATEONLY:
               try{
@@ -6469,7 +6481,7 @@ function rulesEngine (formDef) {
       else if( "is before" === condition) {
         valid = false;
         if( fieldType === FIELD_TYPE_DATETIME ) {
-          switch (fieldOptions.definition.dateTimeUnit)
+          switch (fieldOptions.definition.datetimeUnit)
           {
             case FIELD_TYPE_DATETIME_DATETIMEUNIT_DATEONLY:
               try{
@@ -6497,7 +6509,7 @@ function rulesEngine (formDef) {
       else if( "is after" === condition) {
         valid = false;
         if( fieldType === FIELD_TYPE_DATETIME ) {
-          switch (fieldOptions.definition.dateTimeUnit)
+          switch (fieldOptions.definition.datetimeUnit)
           {
             case FIELD_TYPE_DATETIME_DATETIMEUNIT_DATEONLY:
               try{

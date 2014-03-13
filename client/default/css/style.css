@@ -1,9 +1,31 @@
 /* Phase2 styles */
 
 
+.fh_appform_container .fh_appform_navigation li:first{
+
+}
+
+.fh_appform_container .fh_appform_navigation li{
+    border-top:none;
+    border-bottom:none;
+    border-right:none;
+    border-bottom:none;
+}
+
+.fh_appform_container .fh_appform_navigation li.active{
+    border-top:none;
+    border-bottom:none;
+    border-right:none;
+}
+
+
 .fh_appform_field_input.pending_submission{
     width: 85%;
-    margin-left: 10px;
+    margin: 10px 0px 10px 25px;
+}
+
+.segmented-controller.fh_appform_button_navigation{
+    padding: 0px;
 }
 
 
@@ -59,11 +81,11 @@
 
 #fh_logs, #fh_wufoo_content, #fh_wufoo_form_list, #fh_wufoo_settings {
   /*background: #fff; fh_appform_body replaces this. Displaying the background for the list of forms.*/
-  /*width: 97%;*/
+  width: 97%;
   margin: 0 auto;
-  /*-webkit-border-radius: 5px;*/
-  /*-moz-border-radius: 5px;*/
-  /*border-radius: 5px;*/
+  -webkit-border-radius: 5px;
+  -moz-border-radius: 5px;
+  border-radius: 5px;
   padding: 10px 0 10px 0;
   -webkit-box-shadow: rgba(0, 0, 0, 0.2) 0 2px 6px 0;
   -moz-box-shadow: rgba(0, 0, 0, 0.2) 0 2px 6px 0;
@@ -429,12 +451,13 @@ textarea {
 
 #fh_wufoo_header .count {
     float: right;
-    display: inline-block; padding-top: 6px; padding-bottom: 3px; padding-left: 9px; padding-right: 9px;
+    display: inline-block; padding-top: 4px; padding-bottom: 4px; padding-left: 9px; padding-right: 9px;
 }
 
 .segmented-controller li > a {
   padding: 5px 8px;
   line-height: 21px;
+  color: inherit;
 }
 
 #fh_wufoo_pending .list.inset, #fh_wufoo_drafts .list.inset {
@@ -447,11 +470,11 @@ textarea {
 }
 
 .list.inset .second_button {
-  right: 33px;
+  /*right: 33px;*/
 }
 
 #fh_wufoo_pending .list.inset .name, #fh_wufoo_drafts .list.inset .name {
-  font-size: 14px;
+  /*font-size: 18px;*/
 }
 
 #fh_wufoo_pending .list.inset .ts,
@@ -459,6 +482,7 @@ textarea {
 #fh_wufoo_sent .list.inset .ts {
   font-size: 10px;
   font-style: italic;
+  font-weight: bold;
 }
 
 #fh_wufoo_pending .list.inset .title,
@@ -466,11 +490,16 @@ textarea {
 #fh_wufoo_sent .list.inset .title {
   font-size: 12px;
   font-style: italic;
-  font-weight: bold;
+  /*font-weight: bold;*/
 }
 
 #fh_wufoo_pending .list.inset button, #fh_wufoo_drafts .list.inset button {
   /*font-size: 12px;*/
+    width: 97%;
+    align-self: center;
+    position: relative;
+    right: 0px;
+    margin-top:0px;
 }
 
 .pending_submission {
@@ -539,7 +568,7 @@ textarea {
   right: inherit;
   width: 100%;
   margin: 0;
-  padding: 4px 12px;
+  padding: 10px 12px
   /*font-size: 12px;*/
 }
 

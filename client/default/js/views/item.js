@@ -8,8 +8,8 @@ ItemView = Backbone.View.extend({
   },
 
   templates: {
-    item_failed: '<span class="name <%= screen %>"><%= name %></span><br/><span class="title <%= screen %>"><%= id %></span><br/><span class="ts">Submitted At: <br/><%= timestamp %></span><br/><span class="pending_review_type fh_appform_error <%= error_type %>"><%= error_message %></span><button class="button fh_appform_button_cancel button-negative delete-item first_button">Delete</button><button class="button fh_appform_button_action button-positive submit-item second_button">Retry</button><span class="chevron"></span>',
-    item: '<span class="name <%= screen %>"><%= name %></span><br/><span class="title <%= screen %>"><%= id %></span><br/><span class="ts"><%= timestamp %></span><button class="button fh_appform_button_cancel button-negative delete-item first_button">Delete</button><button class="button fh_appform_button_action button-positive submit-item second_button">Submit</button><span class="chevron"></span>'
+    item_failed: '<span class="name <%= screen %>"><%= name %></span><br/><span class="title <%= screen %>"><%= id %></span><br/><span class="ts">Submitted At: <br/><%= timestamp %></span><br/><span class="pending_review_type fh_appform_error <%= error_type %>"><%= error_message %></span><button class="button fh_appform_button_cancel button-negative delete-item first_button">Delete</button><button class="button fh_appform_button_action button-positive submit-item second_button">Retry</button>',
+    item: '<span class="name <%= screen %>"><%= name %></span><br/><span class="title <%= screen %>"><%= id %></span><br/><span class="ts"><%= timestamp %></span><button class="button fh_appform_button_cancel button-negative delete-item first_button">Delete</button><button class="button fh_appform_button_action button-positive submit-item second_button">Submit</button>'
   },
 
   errorTypes: {
@@ -59,11 +59,15 @@ ItemView = Backbone.View.extend({
   },
 
   "delete": function(e) {
+    var self = this;
     e.stopPropagation();
 
     var confirmDelete = confirm("Are you sure you want to delete this submission?");
     if (confirmDelete) {
-      this.model.destroy();
+      self.model.coreModel.clearLocal(function(err){
+        if(err) console.error("Error clearing local: ", err);
+        self.model.destroy();
+      });
     }
 
     return false;
@@ -79,13 +83,14 @@ ItemView = Backbone.View.extend({
   },
 
   show: function() {
-    
-    this.model.load(function(err, actual) {
-      var draft = new DraftModel(actual.toJSON());
-      App.views.form = new DraftView({
-        model: draft
+    if(this.model.load){
+      this.model.load(function(err, actual) {
+        var draft = new DraftModel(actual.toJSON());
+        App.views.form = new DraftView({
+          model: draft
+        });
+        App.views.form.render();
       });
-      App.views.form.render();
-    });
+    }
   }
 });

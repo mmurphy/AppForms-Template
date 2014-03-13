@@ -31,8 +31,6 @@ App.Router = Backbone.Router.extend({
   },
 
   form_list: function() {
-
-    $fh.logger.debug('route: form_list');
     this.loadingView = new LoadingCollectionView();
     this.loadingView.show("App Starting");
 
@@ -41,8 +39,8 @@ App.Router = Backbone.Router.extend({
     $fh.ready({}, function() {
       $fh.init({}, function() {
         /**** LOCAL DEV USAGE *****/
-       $fh.cloud_props.hosts.debugCloudUrl = "http://127.0.0.1:3001";
-       $fh.app_props.host = "http://127.0.0.1:3001";
+//       $fh.cloud_props.hosts.debugCloudUrl = "http://127.0.0.1:3001";
+//       $fh.app_props.host = "http://127.0.0.1:3001";
         $fh.forms.init({}, function() {
 
           $fh.forms.getTheme({
@@ -57,12 +55,7 @@ App.Router = Backbone.Router.extend({
             App.views.header = new HeaderView();
             App.views.header.showHome();
 
-            // store error handling
-            _(App.collections).forEach(function(collection) {
-              collection.on('error', function(collection, msg, options) {
-                $fh.logger.error('collection error:\"' + msg + '\"');
-              });
-            });
+
             if ($('#fh_appform_style').length > 0) {
               $('#fh_appform_style').html(themeCSS);
             } else {
@@ -75,67 +68,33 @@ App.Router = Backbone.Router.extend({
       });
     });
   },
-
   onReady: function() {
-
     this.loadingView.show("App Ready, Loading form list");
 
     $fh.env(this.onPropsRead);
-    App.config.on('config:loaded', this.onConfigLoaded);
-    App.config.loadConfig();
 
     // by default, allow fetching on resume event.
     // Can be set to false when taking a pic so refetch doesn't happen on resume from that
     App.resumeFetchAllowed = true;
     document.addEventListener("resume", this.onResume, false);
     var banner = false;
-    $fh.logger.info("    Starting : " + new moment().format('HH:mm:ss DD/MM/YYYY'));
-    $fh.logger.info(" ======================================================");
     $('#fh_wufoo_banner .list li').each(function(i, e) {
-      $fh.logger.info(" = " + $(e).text());
       banner = true;
     });
-    if (!banner) {
-      $fh.logger.info(" = Dev Mode ");
-    }
-
-    $fh.logger.info(" ======================================================");
+    this.onConfigLoaded();
   },
 
   // run App.router.onResume() to test this in browser
   onResume: function() {
     // only trigger resync of forms if NOT resuming after taking a photo
     if (App.resumeFetchAllowed) {
-      $fh.logger.debug('resume fetch in background');
-      // Re-fetch on resume
-      // NOTE: was originally showing loading view and progress while resyncing after resume.
-      //       Not any more. We'll let it happen in background so UI isn't blocking
-      // var loadingView = new LoadingCollectionView();
-      // loadingView.show("Loading form list");
-      // App.collections.forms.store.force(); // do a clear to force a fetch
       App.collections.forms.fetch();
     } else {
-      $fh.logger.debug('resume fetch blocked. resetting resume fetch flag');
       // reset flag to true for next time
       App.resumeFetchAllowed = true;
     }
   },
-
-  pending: function() {
-    $fh.logger.debug('route: pending');
-  },
-
   onConfigLoaded: function() {
-    this.loadingView.show("Config Loaded , fetching forms");
-    // to enable debug mode: App.config.set('debug_mode', true);
-
-    App.config.on('change:debug_mode', this.onDebugModeChanged);
-    App.config.on('change:white_list', this.onWhitelistChanged);
-    App.config.on('change:logger', this.onLoggerChanged);
-    App.config.on('change:max_retries', this.onRetriesChanged);
-    App.config.on('change:defaults', this.onDefaultsChanged);
-    App.config.on('change:timeout', this.onTimeoutChanged);
-
     this.fetchCollections("Config Loaded , fetching forms");
   },
 
@@ -151,62 +110,9 @@ App.Router = Backbone.Router.extend({
 
     refreshSubmissionCollections();
   },
-
-  fetchTimeout: function() {
-    clearTimeout(this.fetchTo);
-    this.fetchTo = null;
-    this.loadingView.hide();
-    App.resumeFetchAllowed = false;
-    this.fullyLoaded = true;
-    this.onResume();
-  },
-
   onPropsRead: function(props) {
     this.props = props;
     // App.views.about = new AboutView(props);
-  },
-
-  onTimeoutChanged: function() {
-    var timeout = App.config.getValueOrDefault("timeout");
-    if (_.isNumber(timeout)) {
-      $fh.ready({}, function() {
-        $fh.logger.debug("Setting timeout to " + timeout + " seconds");
-        $fh.legacy.fh_timeout = timeout * 1000;
-      });
-    }
-  },
-
-  onLoggerChanged: function() {
-    var logger = App.config.getValueOrDefault("logger");
-    $('#logger').toggle(logger);
-  },
-
-  onRetriesChanged: function() {
-    var max_retries = App.config.getValueOrDefault("max_retries");
-    //TODO add retry control for formsdk.
-    // $fh.retry.toggle(max_retries > 1);
-  },
-
-  onDebugModeChanged: function() {
-    var debug_mode = App.config.getValueOrDefault("debug_mode");
-    $('#debug_mode').toggle(debug_mode);
-  },
-
-  onWhitelistChanged: function() {
-    var white_list = App.config.getValueOrDefault("white_list") || [];
-    var listed = _.find(white_list, function(m) {
-      return this.props.uuid.match(Utils.toRegExp(m));
-    }, this);
-    // on start up the setting icon may not be rendered yet
-    setTimeout(function() {
-      $('a.settings').toggle( !! listed);
-    }, 500);
-  },
-
-  onDefaultsChanged: function() {
-    this.onLoggerChanged();
-    this.onTimeoutChanged();
-    this.onWhitelistChanged();
   }
 });
 
