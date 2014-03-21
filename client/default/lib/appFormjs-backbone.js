@@ -1529,7 +1529,7 @@ var FormListView = BaseView.extend({
   templates: {
     list: '<ul class="form_list fh_appform_body"></ul>',
     header: '<h2>Your Forms</h2><h4>Choose a form from the list below</h4>',
-    error: '<li><button id="formlist_reload" class="button-block <%= enabledClass %> <%= dataClass %> fh_appform_button_navigation"><%= name %><div class="loading"></div></button></li>'
+    error: '<li><button id="formlist_reload" class="button-block <%= enabledClass %> <%= dataClass %> fh_appform_button_default"><%= name %><div class="loading"></div></button></li>'
   },
 
   initialize: function() {
@@ -2053,9 +2053,9 @@ FieldCameraView = FieldView.extend({
     '<div class="cam"></div>' +
     '</div>',
   onElementShow: function(index) {
-    var captureBtn = $(this.renderButton(index, "<i class='fa fa-camera'></i>&nbspCapture Photo From Camera", "fhcam"));
-    var libBtn = $(this.renderButton(index, "<i class='fa fa-folder'></i>&nbspChoose Photo from Library", "fhcam_lib"));
-    var rmBtn = $(this.renderButton(index, "<i class='fa fa-times-circle'></i>&nbspRemove Photo", "remove"));
+    var captureBtn = $(this.renderButton(index, "<i class='fa fa-camera'></i>&nbsp;Capture Photo From Camera", "fhcam"));
+    var libBtn = $(this.renderButton(index, "<i class='fa fa-folder'></i>&nbsp;Choose Photo from Library", "fhcam_lib"));
+    var rmBtn = $(this.renderButton(index, "<i class='fa fa-times-circle'></i>&nbsp;Remove Photo", "remove"));
 
     this.getWrapper(index).append(captureBtn);
     this.getWrapper(index).append(libBtn);
@@ -2225,6 +2225,7 @@ FieldCameraView = FieldView.extend({
   }
 });
 window.sampleImageNum = -1;
+
 FieldCameraGroupView = FieldCameraView.extend({
   initialize: function() {
     FieldCameraView.prototype.initialize.call(this);
@@ -2388,7 +2389,7 @@ FieldCheckboxView = FieldView.extend({
         "index": index,
         "choice": subfield.label,
         "value": subfield.label,
-        "checked": (subfield.selected) ? "checked='checked'" : ""
+        "checked": (subfield.checked) ? "checked='checked'" : ""
       });
     });
 
@@ -2397,31 +2398,35 @@ FieldCheckboxView = FieldView.extend({
     return checkboxesHtml;
   },
   valueFromElement: function(index) {
-    var value=[];
+    var value = {
+      selections: []
+    };
     var wrapperObj=this.getWrapper(index);
     var checked=wrapperObj.find("input:checked");
     checked.each(function(){
-      value.push($(this).val());
+      value.selections.push($(this).val());
     });
     return value;
   },
   valuePopulateToElement: function(index,value) {
     var wrapperObj=this.getWrapper(index);
-    if (!value || !value instanceof Array){
+    if (!value || !value.selections || !(value.selections instanceof Array)){
       return;
     }
-    for (var i=0;i<value.length;i++){
-      var v=value[i];
+    for (var i=0; i < value.selections.length; i++){
+      var v=value.selections[i];
       wrapperObj.find("input[value='"+v+"']").attr("checked","checked");
     }
   }
 });
+
 FieldEmailView = FieldView.extend({
    type:"email"
 });
 FieldFileView = FieldView.extend({
-  input: "<button data-field='<%= fieldId %>' class='special_button fh_appform_button_action' data-index='<%= index %>' style='margin-top:0px;'  type='<%= inputType %>'>Select A File</button>" +
-    "<input style='display:none;' class='fh_appform_field_input' data-field='<%= fieldId %>' data-index='<%= index %>' type='<%= inputType %>'/>",
+  input: "<button data-field='<%= fieldId %>' class='special_button fh_appform_button_action select' data-index='<%= index %>' style='margin-top:0px;'  type='<%= inputType %>'>Select A File</button>" +
+"<button data-field='<%= fieldId %>' class='special_button fh_appform_button_action remove' data-index='<%= index %>' style='margin-top:0px;'  type='<%= inputType %>'><i class='fa fa-times-circle'></i>&nbsp;Remove File Entry</button>" +
+"<input style='display:none;' class='fh_appform_field_input' data-field='<%= fieldId %>' data-index='<%= index %>' type='<%= inputType %>'/>",
   type: "file",
   initialize: function () {
     var self = this;
@@ -2457,16 +2462,20 @@ FieldFileView = FieldView.extend({
     }
   },
   showButton: function (index, fileObj) {
+    var self = this;
     var wrapperObj = this.getWrapper(index);
-    var button = wrapperObj.find("button");
+    var button = wrapperObj.find("button.select");
+    var button_remove = wrapperObj.find("button.remove");
     var fileEle = wrapperObj.find(".fh_appform_field_input");
     fileEle.hide();
     button.show();
 
     if(fileObj == null){
       button.text("Select A File");
+      button_remove.hide();
     } else {
       button.text(fileObj.fileName + "(" + fileObj.fileSize + ")");
+      button_remove.show();
     }
 
     button.off("click");
@@ -2475,6 +2484,20 @@ FieldFileView = FieldView.extend({
       var index = $(this).data().index;
       fileEle.click();
     });
+
+    button_remove.off("click");
+    button_remove.on("click", function () {
+      var index = $(this).data().index;
+      if(self.fileObjs && self.fileObjs[index]) {
+        self.fileObjs[index] = null;
+      }
+      self.resetFormElement(fileEle);
+      self.showButton(index, null);  // remove file entry
+    });
+  },
+  resetFormElement: function (e) {
+    e.wrap("<form>").closest("form").get(0).reset();
+    e.unwrap();
   },
   valuePopulateToElement: function (index, value) {
     if (value) {
@@ -2486,6 +2509,7 @@ FieldFileView = FieldView.extend({
     this.showButton(index, null);
   }
 });
+
 FieldGeoView = FieldView.extend({
   input: "<input class='fh_appform_field_input' data-field='<%= fieldId %>' data-index='<%= index %>'  type='<%= inputType %>' disabled/>",
   buttonHtml: "<i class='fa fa-map-marker'></i>&nbsp<%= buttonText %>",
@@ -2722,12 +2746,9 @@ FieldMapView = FieldView.extend({
   }
 });
 FieldNumberView = FieldView.extend({
-    type:"number",
-    valueFromElement:function(index){
-        var wrapperObj = this.getWrapper(index);
-        return parseFloat(wrapperObj.find("input,select,textarea").val()) || 0;
-    }
+    type:"number"
 });
+
 // We only capture this as text
 // NOTE: validate plugin has a 'phoneUS' type. Could use this if needed
 FieldPhoneView = FieldView.extend({
@@ -2814,7 +2835,7 @@ FieldSignatureView = FieldView.extend({
     this.on('visible', this.clearError);
   },
   onElementShow: function(index) {
-    var html = $(this.renderButton(index, "<i class='fa fa-pencil'></i>&nbspCapture Signature", this.extension_type));
+    var html = $(this.renderButton(index, "<i class='fa fa-pencil'></i>&nbsp;Capture Signature", this.extension_type));
     this.getWrapper(index).append(html);
     var self = this;
     html.on("click", function() {
@@ -3078,6 +3099,7 @@ FieldSignatureView = FieldView.extend({
   }
 
 });
+
 FieldTextView = FieldView.extend({
 
 });
@@ -3085,11 +3107,11 @@ FieldTextareaView = FieldView.extend({
     input: "<textarea class='fh_appform_field_input' data-field='<%= fieldId %>' data-index='<%= index %>'  ></textarea>"
 });
 FieldSectionBreak = FieldView.extend({
+  className: "fh_appform_section_break",
   templates: {
-    sectionBreak: '<div class="fh_appform_field_section_break_title"><%= sectionTitle %></div><div class="fh_appform_field_section_break_description"><%= sectionDescription%></div>'
+    sectionBreak: '<div class="fh_appform_section_title"><%= sectionTitle %></div><div class="fh_appform_section_description"><%= sectionDescription%></div>'
   },
   renderEle:function(){
-    this.$el.addClass("fh_appform_field_section_break");
     return _.template(this.templates.sectionBreak, {sectionTitle: this.model.getName(), sectionDescription: this.model.getHelpText()});
   },
   renderTitle: function(){
@@ -3333,10 +3355,10 @@ var FormView = BaseView.extend({
   "fieldValue": [],
   templates: {
     formLogo: '<div class="fh_appform_logo_container"><div class="fh_appform_logo"></div></div>',
-    formTitle: '<div class="fh_appform_title"><%= title %></div>',
-    formDescription: '<div class="fh_appform_description"><%= description %></div>',
-    formContainer: '<div id="fh_appform_container" class="fh_appform_form fh_appform_container"></div>',
-    buttons: '<div id="fh_appform_navigation_buttons" class="fh_appform_action_bar"><button class="fh_appform_button_saveDraft fh_appform_hidden fh_appform_button_main fh_appform_button_action">Save Draft</button><button class="fh_appform_button_previous fh_appform_hidden fh_appform_button_navigation">Previous</button><button class="fh_appform_button_next fh_appform_hidden fh_appform_button_navigation">Next</button><button class="fh_appform_button_submit fh_appform_hidden fh_appform_button_action">Submit</button></div>'
+    formTitle: '<div class="fh_appform_form_title"><%= title %></div>',
+    formDescription: '<div class="fh_appform_form_description"><%= description %></div>',
+    formContainer: '<div id="fh_appform_container" class="fh_appform_form_area fh_appform_container"></div>',
+    buttons: '<div id="fh_appform_navigation_buttons" class="fh_appform_action_bar"><button class="fh_appform_button_saveDraft fh_appform_hidden fh_appform_button_main fh_appform_button_action">Save Draft</button><button class="fh_appform_button_previous fh_appform_hidden fh_appform_button_default">Previous</button><button class="fh_appform_button_next fh_appform_hidden fh_appform_button_default">Next</button><button class="fh_appform_button_submit fh_appform_hidden fh_appform_button_action">Submit</button></div>'
   },
   events: {
     "click button.fh_appform_button_next": "nextPage",
@@ -3599,7 +3621,7 @@ var FormView = BaseView.extend({
 
   },
   render: function() {
-    this.el.find("#fh_appform_container.fh_appform_form").append(this.templates.buttons);
+    this.el.find("#fh_appform_container.fh_appform_form_area").append(this.templates.buttons);
     this.rebindButtons();
     this.pageViews[0].show();
     this.pageNum = 0;
@@ -3961,7 +3983,7 @@ var ConfigView = Backbone.View.extend({
         '<input class="fh_appform_field_input" style="display: inline-block;text-align: center;width: 98%;float: right;" data-key="log_email" value="<%= log_email%>"/>'+
       '</div>'+
       '<div class="log_buttons" style="width:100%;margin: 20px 0px 20px 0px;padding:0px 0px 0px 0px;">'+
-        '<button class="fh_appform_button_navigation" style="width:30%;margin-right:10px" type="button" id="_viewLogsBtn">View Logs</button>'+
+        '<button class="fh_appform_button_default" style="width:30%;margin-right:10px" type="button" id="_viewLogsBtn">View Logs</button>'+
         '<button class="fh_appform_button_cancel" style="width:30%;margin-right:10px" type="button" id="_clearLogsBtn">Clear Logs</button>'+
         '<button class="fh_appform_button_action" style="width:30%;" type="button" id="_sendLogsBtn">Send Logs</button>'+
       '</div>'+

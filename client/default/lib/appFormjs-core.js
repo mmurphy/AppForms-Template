@@ -59,6 +59,19 @@ appForm.utils = function(module) {
   module.md5 = md5;
   module.getTime = getTime;
   module.send=send;
+  module.isPhoneGap = isPhoneGap;
+
+  function isPhoneGap() {
+    //http://stackoverflow.com/questions/10347539/detect-between-a-mobile-browser-or-a-phonegap-application
+    //may break.
+    var app = document.URL.indexOf('http://') === -1 && document.URL.indexOf('https://') === -1;
+    if (app) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+
   function extend(child, parent) {
 
     if (parent.constructor && parent.constructor == Function) {
@@ -129,6 +142,7 @@ appForm.utils = function(module) {
   }
   return module;
 }(appForm.utils || {});
+
 appForm.utils = function (module) {
   module.fileSystem = {
     isFileSystemAvailable: isFileSystemAvailable,
@@ -162,6 +176,35 @@ appForm.utils = function (module) {
     };
     fileReader.readAsDataURL(file);
   }
+
+  function _createBlobOrString(contentstr) {
+    var retVal;
+    if (appForm.utils.isPhoneGap()) {  // phonegap filewriter works with strings, later versions also ork with binary arrays, and if passed a blob will just convert to binary array anyway
+      retVal = contentstr;
+    } else {
+      var targetContentType = 'text/plain';
+      try {
+        retVal = new Blob( [contentstr], { type: targetContentType });  // Blob doesn't exist on all androids
+      }
+      catch (e){
+        // TypeError old chrome and FF
+        var blobBuilder = window.BlobBuilder ||
+                          window.WebKitBlobBuilder ||
+                          window.MozBlobBuilder ||
+                          window.MSBlobBuilder;
+        if (e.name == 'TypeError' && blobBuilder) {
+          var bb = new blobBuilder();
+          bb.append([contentstr.buffer]);
+          retVal = bb.getBlob(targetContentType);
+        } else {
+          // We can't make a Blob, so just return the stringified content
+          retVal = contentstr;
+        }
+      }
+    }
+    return retVal;
+  }
+
   /**
      * Save a content to file system into a file
      * @param  {[type]} fileName file name to be stored.
@@ -182,13 +225,13 @@ appForm.utils = function (module) {
         size = saveObj.size;
       } else {
         //JSON object
-        var stringify = JSON.stringify(content);
-        size = stringify.length;
-        saveObj = new Blob(stringify, { type: 'text/plain' });
+        var contentstr = JSON.stringify(content);
+        saveObj = _createBlobOrString(contentstr);
+        size = saveObj.size || saveObj.length;
       }
     } else if (typeof content == 'string') {
-      size = content.length;
-      saveObj = new Blob([content], { type: 'text/plain' });
+      saveObj = _createBlobOrString(content);
+      size = saveObj.size || saveObj.length;
     }
     _getFileEntry(fileName, size, { create: true }, function (err, fileEntry) {
       if (err) {
@@ -381,6 +424,7 @@ appForm.utils = function (module) {
   _checkEnv();
   return module;
 }(appForm.utils || {});
+
 appForm.utils = function (module) {
   module.takePhoto = takePhoto;
   module.isPhoneGapCamAvailable = isPhoneGapAvailable;
@@ -2676,7 +2720,7 @@ appForm.models = function (module) {
   };
   /**
      * Process an input value. convert to submission format. run field.validate before this
-     * @param  {[type]} params {"value", "isStore":optional} 
+     * @param  {[type]} params {"value", "isStore":optional}
      * @param {cb} cb(err,res)
      * @return {[type]}           submission json used for fieldValues for the field
      */
@@ -2738,6 +2782,7 @@ appForm.models = function (module) {
   module.Field = Field;
   return module;
 }(appForm.models || {});
+
 /**
  * extension of Field class to support checkbox field
  */
@@ -2752,11 +2797,10 @@ appForm.models.Field = function (module) {
   };
   module.prototype.process_checkboxes = function (params, cb) {
     var inputValue = params.value;
-    if (!(inputValue instanceof Array)) {
-      cb('the input value for processing checkbox field should be like [val1,val2]');
+    if (!inputValue || !inputValue.selections || !(inputValue.selections instanceof Array)){
+      cb('the input value for processing checkbox field should be like {selections: [val1,val2]}');
     } else {
-      var obj = { 'selections': inputValue };
-      cb(null, obj);
+      cb(null, inputValue);
     }
   };
   module.prototype.convert_checkboxes = function (value, cb) {
@@ -2768,6 +2812,7 @@ appForm.models.Field = function (module) {
   };
   return module;
 }(appForm.models.Field || {});
+
 /**
  * extension of Field class to support file field
  */
@@ -2838,7 +2883,7 @@ appForm.models.Field = function (module) {
     var def = this.getFieldDefinition();
     var obj={};
     switch (def.locationUnit) {
-    case 'latLong':
+    case 'latlong':
       if (!inputValue.lat || !inputValue["long"]) {
         cb('the input values for latlong field is {lat: number, long: number}');
       } else {
@@ -2862,12 +2907,13 @@ appForm.models.Field = function (module) {
       }
       break;
     default:
-      cb('Invalid subtype type of location field, allowed types: latLong and eastnorth, was: ' + def.locationUnit);
+      cb('Invalid subtype type of location field, allowed types: latlong and eastnorth, was: ' + def.locationUnit);
       break;
     }
   };
   return module;
 }(appForm.models.Field || {});
+
 /**
  * extension of Field class to support matrix field
  */
@@ -2887,6 +2933,23 @@ appForm.models.Field = function (module) {
     } else {
       throw 'matrix columns definition is not found in field definition';
     }
+  };
+  return module;
+}(appForm.models.Field || {});
+
+/**
+ * extension of Field class to support number field
+ */
+appForm.models.Field = function (module) {
+  /**
+     * Format: [{lat: number, long: number}]
+     * @param  {[type]} inputValues [description]
+     * @return {[type]}             [description]
+     */
+  module.prototype.process_number = function (params, cb) {
+    var inputValue = params.value;
+    var ret = parseFloat(inputValue) || 0;
+    cb(null, ret);
   };
   return module;
 }(appForm.models.Field || {});
@@ -4278,15 +4341,16 @@ if ($fh.forms === undefined) {
 }
 appForm.RulesEngine=rulesEngine;
 
-/*! fh-forms - v0.2.30 -  */
+/*! fh-forms - v0.2.47 -  */
 /*! async - v0.2.9 -  */
-/*! 2014-02-17 */
+/*! 2014-03-20 */
 /* This is the prefix file */
 function rulesEngine (formDef) {
   var define = {};
   var module = {exports:{}}; // create a module.exports - async will load into it
-
+  /* jshint ignore:start */
   /* End of prefix file */
+
   /*global setImmediate: false, setTimeout: false, console: false */
   (function () {
 
@@ -4311,7 +4375,7 @@ function rulesEngine (formDef) {
         if (called) throw new Error("Callback was already called.");
         called = true;
         fn.apply(root, arguments);
-      };
+      }
     }
 
     //// cross-browser compatiblity functions ////
@@ -5184,7 +5248,7 @@ function rulesEngine (formDef) {
               var err = arguments[0];
               var nextargs = Array.prototype.slice.call(arguments, 1);
               cb(err, nextargs);
-            }]));
+            }]))
           },
           function (err, results) {
             callback.apply(that, [err].concat(results));
@@ -5244,13 +5308,14 @@ function rulesEngine (formDef) {
   }());
 
   /* This is the infix file */
-
+  /* jshint ignore:end */
   var asyncLoader = module.exports;  // async has updated this, now save in our var, to that it can be returned from our dummy require
   function require() {
     return asyncLoader;
   }
 
   /* End of infix file */
+
   (function () {
 
     var async=require('async');
@@ -5354,7 +5419,7 @@ function rulesEngine (formDef) {
       var validatorsClientMap = {
         "text":         validatorString,
         "textarea":     validatorString,
-        "number":       validatorNumber,
+        "number":       validatorNumericString,
         "emailAddress": validatorEmail,
         "dropdown":     validatorDropDown,
         "radio":        validatorDropDown,
@@ -5382,6 +5447,11 @@ function rulesEngine (formDef) {
         async.each(definition.pages, function(page, cbPages) {
           async.each(page.fields, function(field, cbFields) {
             field.pageId = page._id;
+
+            field.fieldOptions = field.fieldOptions ? field.fieldOptions : {};
+            field.fieldOptions.definition = field.fieldOptions.definition ? field.fieldOptions.definition : {};
+            field.fieldOptions.validation = field.fieldOptions.validation ? field.fieldOptions.validation : {};
+
             fieldMap[field._id] = field;
             if (field.required) {
               requiredFieldMap[field._id] = {field: field, submitted: false, validated: false};
@@ -5740,6 +5810,7 @@ function rulesEngine (formDef) {
         return;  // just functions below this
 
         function checkValueSubmitted(submittedField, fieldDefinition, cb) {
+          if(! fieldDefinition.required) return cb(undefined, null);
           var valueSubmitted = submittedField && submittedField.fieldValues && (submittedField.fieldValues.length > 0);
           if (!valueSubmitted) {
             return cb(undefined, "No value submitted for field " + fieldDefinition.name);
@@ -5761,7 +5832,7 @@ function rulesEngine (formDef) {
 
         function checkRepeat(numSubmittedValues, fieldDefinition, cb) {
 
-          if(fieldDefinition.repeating && fieldDefinition.fieldOptions.definition){
+          if(fieldDefinition.repeating && fieldDefinition.fieldOptions && fieldDefinition.fieldOptions.definition){
             if(fieldDefinition.fieldOptions.definition.minRepeat){
               if(numSubmittedValues < fieldDefinition.fieldOptions.definition.minRepeat){
                 return cb(undefined, "Expected min of " + fieldDefinition.fieldOptions.definition.minRepeat + " values for field " + fieldDefinition.name + " but got " + numSubmittedValues);
@@ -5896,6 +5967,16 @@ function rulesEngine (formDef) {
         return cb();
       }
 
+      function validatorNumericString (fieldValue, fieldDefinition, previousFieldValues, cb) {
+        var testVal = (fieldValue - 0);  // coerce to number (or NaN)
+        var numeric = (testVal == fieldValue); // testVal co-erced to numeric above, so numeric comparison and NaN != NaN
+        if(!numeric) {
+          return cb(new Error("Expected numeric but got: " + fieldValue));
+        }
+
+        return validatorNumber(testVal, fieldDefinition, previousFieldValues, cb);
+      }
+
       function validatorNumber (fieldValue, fieldDefinition, previousFieldValues, cb) {
         if(typeof fieldValue !== "number"){
           return cb(new Error("Expected number but got " + typeof(fieldValue)));
@@ -5981,7 +6062,7 @@ function rulesEngine (formDef) {
 
         async.eachSeries(fieldDefinition.fieldOptions.definition.options, function(choice, cb){
           for(var choiceName in choice){
-            optionsInCheckbox.push(choiceName);
+            optionsInCheckbox.push(choice[choiceName]);
           }
           return cb();
         }, function(err){
@@ -6413,7 +6494,7 @@ function rulesEngine (formDef) {
     function isConditionActive(field, fieldValue, testValue, condition) {
 
       var fieldType = field.type;
-      var fieldOptions = field.fieldOptions;
+      var fieldOptions = field.fieldOptions ? field.fieldOptions : {};
 
       var valid = true;
       if( "is equal to" === condition) {
