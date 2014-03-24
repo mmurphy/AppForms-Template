@@ -2,18 +2,18 @@ HeaderView = Backbone.View.extend({
   el: '#fh_wufoo_header',
 
   events: {
-    'click li.fh_wufoo_home': 'showHome',
-    'click li.fh_wufoo_drafts': 'showDrafts',
-    'click li.fh_wufoo_pending': 'showPending',
-    'click li.fh_wufoo_sent': 'showSent'
+    'click div.fh_wufoo_home': 'showHome',
+    'click div.fh_wufoo_drafts': 'showDrafts',
+    'click div.fh_wufoo_pending': 'showPending',
+    'click div.fh_wufoo_sent': 'showSent'
   },
   
   templates: {
-    list: '<ul class="segmented-controller fh_appform_navigation"></ul>',
-    forms_button: '<li class="fh_wufoo_home"><a class="" href="#">Forms</a></li>',
-    drafts_button: '<li class="fh_wufoo_drafts"><a class="" href="#">Drafts<span class="count"></span></a></li>',
-    pending_button: '<li class="fh_wufoo_pending"><a class="" href="#">Pending<span class="count"></span></a></li>',
-    sent_button: '<li class="fh_wufoo_sent"><a class="" href="#">Sent<span class="count"></span></a></li>'
+    list: '<div class="navigation_list"></div>',
+    forms_button: '<div class="fh_wufoo_home nav_item"><a class="" href="#">Forms</a></li>',
+    drafts_button: '<div class="fh_wufoo_drafts nav_item"><a class="" href="#">Drafts<span class="count"></span></a></div>',
+    pending_button: '<div class="fh_wufoo_pending nav_item"><a class="" href="#">Pending<span class="count"></span></a></div>',
+    sent_button: '<div class="fh_wufoo_sent nav_item_last"><a class="" href="#">Sent<span class="count"></span></a></div>'
   },
 
   initialize: function() {
@@ -123,8 +123,10 @@ HeaderView = Backbone.View.extend({
   },
 
   markActive: function(tab_class) {
-    $('li', this.el).removeClass('active');
-    $(tab_class, this.el).addClass('active');
+    var self = this;
+    self.$el.find('.navigation_list a').removeClass('fh_appform_button_default_active');
+    self.$el.find('.navigation_list a').addClass('fh_appform_button_default');
+    self.$el.find(tab_class + " a").addClass('fh_appform_button_default_active');
   },
 
   updateCounts: function() {
