@@ -1658,14 +1658,14 @@ var FormListItemView = BaseView.extend({
 var FieldView = Backbone.View.extend({
 
   className: 'fh_appform_field_area',
-  errMessageContainer: ".fh_appform_errorMsg",
+  errMessageContainer: ".fh_appform_field_error_container",
   requiredClassName: "fh_appform_field_required",
-  errorClassName: "fh_appform_error",
+  errorClassName: "fh_appform_field_error",
   addInputButtonClass: ".fh_appform_addInputBtn", //TODO Need to remove hard-coded strings for these names
   removeInputButtonClass: ".fh_appform_removeInputBtn",
   fieldWrapper: '<div class="fh_appform_input_wrapper"></div>',
   input: "<input class='fh_appform_field_input' data-field='<%= fieldId %>' data-index='<%= index %>' type='<%= inputType %>' />",
-  inputTemplate: "<div id='wrapper_<%= fieldId %>_<%= index %>' style='width:100%;margin-top: 10px;'> <div class='<%= required %> fh_appform_field_title fh_appform_field_numbering'> <%=index + 1%>.  </div> <div class='fh_appform_field_input_container' style='display: inline-block;float: right;width: 80%;margin-right:15px'>  <%= inputHtml %> <div class='fh_appform_errorMsg fh_appform_hidden' style='border-radius: 5px;margin-top: 5px;'></div>  </div><br style='clear:both'/>    </div>",
+  inputTemplate: "<div id='wrapper_<%= fieldId %>_<%= index %>' style='width:100%;margin-top: 10px;'> <div class='<%= required %> fh_appform_field_title fh_appform_field_numbering'> <%=index + 1%>.  </div> <div class='fh_appform_field_input_container' style='display: inline-block;float: right;width: 80%;margin-right:15px'>  <%= inputHtml %> <div class='fh_appform_field_error_container fh_appform_hidden' style='border-radius: 5px;margin-top: 5px;'></div>  </div><br style='clear:both'/>    </div>",
 
 
   fh_appform_fieldActionBar: "<div class='fh_appform_fieldActionBar' style='text-align: right;'><button class='fh_appform_removeInputBtn special_button fh_appform_button_action'>-</button><button class='special_button fh_appform_addInputBtn fh_appform_button_action'>+</button></div>",
@@ -2706,12 +2706,13 @@ FieldMapView = FieldView.extend({
     }
   },
   mapResize: function() {
-    if (this.maps.length > 0) {
-      for (var i = 0; i < this.maps.length; i++) {
+    var self = this;
+    if (self.maps.length > 0) {
+      for (var i = 0; i < self.maps.length; i++) {
         var map = this.maps[i];
         if (map) {
           google.maps.event.trigger(map, 'resize');
-          map.setCenter(new google.maps.LatLng(this.latLongs[i].lat, this.latLongs[i]["long"]));
+          map.setCenter(new google.maps.LatLng(self.mapData[i].lat, self.mapData[i]["long"]));
         }
       }
     }
@@ -3290,7 +3291,13 @@ var PageView=BaseView.extend({
 
   show: function () {
     var self = this;
-    this.$el.removeClass('fh_appform_hidden');
+    self.$el.removeClass('fh_appform_hidden');
+
+    for(var fieldViewId in self.fieldViews){
+      if(self.fieldViews[fieldViewId].mapResize){
+        self.fieldViews[fieldViewId].mapResize();
+      }
+    }
   },
 
   hide: function () {
